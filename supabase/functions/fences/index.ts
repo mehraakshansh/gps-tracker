@@ -135,6 +135,6 @@ async function seedDefaultZones(supabase: ReturnType<typeof createClient>) {
   ];
 
   for (const z of zones) {
-    await supabase.from("zones").insert({ ...z, is_active: true });
+    await supabase.from("zones").insert({ ...z, active: true });
   }
 }

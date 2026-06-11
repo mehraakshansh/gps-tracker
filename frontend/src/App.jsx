@@ -207,7 +207,7 @@ export default function App() {
               borderRadius:4, padding:"10px 14px",
               backdropFilter:"blur(8px)", minWidth:180,
             }}>
-              <div style={{fontSize:9,fontWeight:700,color:"#facc15",letterSpacing:2,marginBottom:6}}>PATH · {tracker.pathResult.algo}</div>
+              <div style={{fontSize:9,fontWeight:700,color:"#facc15",letterSpacing:2,marginBottom:6}}>PATH · {tracker.pathResult.algo ?? tracker.pathResult.algorithm}</div>
               {[
                 ["DIST",   `${tracker.pathResult.distance_km?.toFixed(2)} km`],
                 ["WPTs",   tracker.pathResult.waypoints?.length],

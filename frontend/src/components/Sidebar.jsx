@@ -241,11 +241,16 @@ function ZonesTab({ zones, onAdd, onRemove }) {
 }
 
 // ── PATHFIND TAB ──────────────────────────────────────────────
-function PathfindTab({ assets, pathResult, pathLoading, onRun, onClear }) {
-  const [assetId, setAssetId] = useState("");
+function PathfindTab({ assets, pathResult, pathLoading, onRun, onClear, selectedAssetId }) {
+  const [assetId, setAssetId] = useState(selectedAssetId ?? "");
   const [endLat,  setEndLat]  = useState("28.6260");
   const [endLon,  setEndLon]  = useState("77.2280");
   const [algo,    setAlgo]    = useState("ASTAR");
+
+  // Auto-populate asset when sidebar selection changes
+  React.useEffect(() => {
+    if (selectedAssetId) setAssetId(selectedAssetId);
+  }, [selectedAssetId]);
 
   const algoInfo = ALGOS.find(a=>a.id===algo);
 
@@ -574,7 +579,7 @@ export default function Sidebar(props) {
         {tab==="ASSETS"   && <AssetsTab assets={assets} selectedAssetId={selectedAssetId} onSelect={onSelectAsset} filter={filter} setFilter={setFilter}/>}
         {tab==="ALERTS"   && <AlertsTab alerts={alerts} onClear={clearAlerts}/>}
         {tab==="ZONES"    && <ZonesTab zones={zones} onAdd={addZone} onRemove={removeZone}/>}
-        {tab==="PATHFIND" && <PathfindTab assets={assets} pathResult={pathResult} pathLoading={pathLoading} onRun={runPathfind} onClear={()=>setPathResult(null)}/>}
+        {tab==="PATHFIND" && <PathfindTab assets={assets} pathResult={pathResult} pathLoading={pathLoading} onRun={runPathfind} onClear={()=>setPathResult(null)} selectedAssetId={selectedAssetId}/>}
         {tab==="SIMULATE" && <SimulateTab assets={assets} simResult={simResult} simLoading={simLoading} onRun={runSimulation}/>}
         {tab==="ARMORY"   && <ArmoryTab armory={armory}/>}
       </div>

@@ -19,7 +19,7 @@ serve(async (req) => {
     const method = req.method;
     const url = new URL(req.url);
 
-    // ── GET /assets ── return all assets with their zone states
+    // ── GET /assets ── return all assets with zone-status enrichment
     if (method === "GET") {
       const { data: assets, error } = await supabase
         .from("assets")
@@ -37,7 +37,34 @@ serve(async (req) => {
         });
       }
 
-      return new Response(JSON.stringify(assets), {
+      // Load zones for live zone-status computation
+      const { data: zones } = await supabase
+        .from("zones")
+        .select("id, name, zone_type, center_lat, center_lon, radius_meters")
+        .or("active.eq.true,is_active.eq.true");
+
+      const haversine = (lat1: number, lon1: number, lat2: number, lon2: number) => {
+        const R = 6371000, dLat = (lat2-lat1)*Math.PI/180, dLon = (lon2-lon1)*Math.PI/180;
+        const a = Math.sin(dLat/2)**2 + Math.cos(lat1*Math.PI/180)*Math.cos(lat2*Math.PI/180)*Math.sin(dLon/2)**2;
+        return R*2*Math.atan2(Math.sqrt(a),Math.sqrt(1-a));
+      };
+
+      // Enrich each asset with zoneStatus array + trail placeholder
+      const enriched = assets.map(a => {
+        const zoneStatus = (zones ?? []).map(z => {
+          if (a.current_lat == null) return null;
+          const d = haversine(a.current_lat, a.current_lon, z.center_lat, z.center_lon);
+          return {
+            zoneId:   z.id,
+            zoneName: z.name,
+            zoneType: z.zone_type,
+            state:    d <= z.radius_meters ? "IN" : "OUT",
+          };
+        }).filter(Boolean);
+        return { ...a, zoneStatus, trail: [] };
+      });
+
+      return new Response(JSON.stringify(enriched), {
         headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
     }
@@ -120,34 +147,72 @@ async function seedDefaultAssets(supabase: ReturnType<typeof createClient>) {
   ];
 
   // Build waypoints for each asset (circular patrol routes)
-  const assetRows = assets.map((a) => ({
-    id: a.id,
-    name: a.name,
-    asset_type: a.type,
-    service: a.service,
-    battalion: a.battalion,
-    status: a.status,
-    current_lat: a.lat,
-    current_lon: a.lon,
-    fuel_level: a.fuel,
-    ammo_level: a.ammo,
-    threat_status: a.threat,
-    waypoints: generateWaypoints(a.lat, a.lon),
-    waypoint_index: 0,
-    speed_kmh: getSpeed(a.type),
-    heading: Math.floor(Math.random() * 360),
-  }));
+  // Build callsign from type + sequential index
+  const callsignCounters: Record<string, number> = {};
+  const iconMap: Record<string, string> = {
+    TANK:"🛡️", APC:"🚛", ARTILLERY:"💥", VEHICLE:"🚙", PERSONNEL:"🪖", SUPPORT:"⛑️",
+    FIGHTER_JET:"✈️", HELICOPTER:"🚁", TRANSPORT:"✈️", DRONE:"🛸", UAV:"🛸",
+    CARRIER:"⚓", DESTROYER:"🚢", SUBMARINE:"🌊", PATROL_AIRCRAFT:"✈️", PATROL_VESSEL:"🚢",
+  };
+  const catMap: Record<string, string> = {
+    TANK:"ARMOUR", APC:"INFANTRY", ARTILLERY:"ARTILLERY", VEHICLE:"LOGISTICS",
+    PERSONNEL:"INFANTRY", SUPPORT:"LOGISTICS", FIGHTER_JET:"AVIATION",
+    HELICOPTER:"AVIATION", TRANSPORT:"LOGISTICS", DRONE:"AVIATION", UAV:"AVIATION",
+    CARRIER:"NAVAL", DESTROYER:"NAVAL", SUBMARINE:"NAVAL",
+    PATROL_AIRCRAFT:"AVIATION", PATROL_VESSEL:"NAVAL",
+  };
+
+  const assetRows = assets.map((a) => {
+    callsignCounters[a.type] = (callsignCounters[a.type] ?? 0) + 1;
+    const cs = `${a.type.slice(0,4).toUpperCase()}-${String(callsignCounters[a.type]).padStart(2,"0")}`;
+    return {
+      id: a.id,
+      name: a.name,
+      callsign: cs,
+      asset_type: a.type,
+      category: catMap[a.type] ?? "LOGISTICS",
+      service: a.service,
+      icon: iconMap[a.type] ?? "🎯",
+      status: a.status,
+      current_lat: a.lat,
+      current_lon: a.lon,
+      fuel_pct: a.fuel,
+      ammo_pct: a.ammo,
+      threat_level: a.threat,
+      speed_kmh: getSpeed(a.type),
+      current_heading: Math.floor(Math.random() * 360),
+      crew_count: 1,
+    };
+  });
 
   const { error } = await supabase.from("assets").upsert(assetRows, { onConflict: "id" });
   if (error) console.error("seed error:", error);
+
+  // Seed patrol routes for each asset
+  const wpRows: { asset_id: string; seq: number; lat: number; lon: number }[] = [];
+  assetRows.forEach(a => {
+    if (a.current_lat == null) return;
+    const wps = generateWaypoints(a.current_lat, a.current_lon);
+    wps.forEach((wp, seq) => wpRows.push({ asset_id: a.id, seq, lat: wp[0], lon: wp[1] }));
+  });
+  if (wpRows.length > 0) {
+    // Clear old waypoints first, then insert
+    const ids = assetRows.map(a => a.id);
+    await supabase.from("route_waypoints").delete().in("asset_id", ids);
+    await supabase.from("route_waypoints").insert(wpRows);
+  }
+
+  // Init simulator state
+  const ssRows = assetRows.map(a => ({ asset_id: a.id, step_idx: 0, t_progress: 0 }));
+  await supabase.from("simulator_state").upsert(ssRows, { onConflict: "asset_id" });
 }
 
 function generateWaypoints(centerLat: number, centerLon: number): [number, number][] {
   const pts: [number, number][] = [];
-  const radius = 0.08 + Math.random() * 0.12;
-  const steps = 8 + Math.floor(Math.random() * 6);
+  const radius = 0.03 + Math.random() * 0.04; // tighter patrol radius
+  const steps = 6 + Math.floor(Math.random() * 4);
   for (let i = 0; i < steps; i++) {
-    const angle = (2 * Math.PI * i) / steps + Math.random() * 0.3;
+    const angle = (2 * Math.PI * i) / steps + (Math.random() - 0.5) * 0.4;
     pts.push([
       centerLat + radius * Math.sin(angle),
       centerLon + radius * Math.cos(angle),
