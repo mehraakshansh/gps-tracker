@@ -1,6 +1,6 @@
 {
-  "name": "gps-geofence-tracker",
-  "version": "1.0.0",
+  "name": "brcs-military-ops",
+  "version": "2.0.0",
   "private": true,
   "type": "module",
   "dependencies": {
@@ -14,9 +14,5 @@
     "@vitejs/plugin-react": "^4.2.1",
     "vite": "^5.2.0"
   },
-  "scripts": {
-    "dev":     "vite",
-    "build":   "vite build",
-    "preview": "vite preview"
-  }
+  "scripts": { "dev":"vite","build":"vite build","preview":"vite preview" }
 }
