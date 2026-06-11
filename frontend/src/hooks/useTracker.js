@@ -1,120 +1,222 @@
-import { useState, useEffect, useRef, useCallback } from "react";
-import { FN, H } from "../lib/supabase";
+import { useState, useEffect, useCallback, useRef } from "react";
+import { supabase, FUNCTIONS_URL } from "../lib/supabase";
 
+// ── Types ─────────────────────────────────────────────────────────────────────
+export interface Asset {
+  id: string;
+  name: string;
+  asset_type: string;
+  service: string;
+  battalion: string;
+  status: string;
+  current_lat: number;
+  current_lon: number;
+  fuel_level: number;
+  ammo_level: number;
+  threat_status: string;
+  heading: number;
+  speed_kmh: number;
+  waypoints?: [number, number][];
+  waypoint_index?: number;
+}
+
+export interface Zone {
+  id: string;
+  name: string;
+  zone_type: string;
+  center_lat: number;
+  center_lon: number;
+  radius_meters: number;
+  color: string;
+  threat_level: string;
+  is_active: boolean;
+}
+
+export interface AlertItem {
+  id: string;
+  asset_id: string;
+  zone_id: string;
+  alert_type: string;
+  severity: string;
+  message: string;
+  created_at: string;
+  assets?: { name: string };
+  zones?: { name: string };
+}
+
+// ── Hook ──────────────────────────────────────────────────────────────────────
 export function useTracker() {
-  const [assets,     setAssets]     = useState([]);
-  const [zones,      setZones]      = useState([]);
-  const [alerts,     setAlerts]     = useState([]);
-  const [armory,     setArmory]     = useState([]);
-  const [pathResult, setPathResult] = useState(null);
-  const [simResult,  setSimResult]  = useState(null);
-  const [simLoading, setSimLoading] = useState(false);
-  const [pathLoading,setPathLoading]= useState(false);
-  const [connected,  setConnected]  = useState(false);
-  const [tickMs,     setTickMs]     = useState(0);
-  const trailsRef = useRef({});
+  const [assets, setAssets] = useState<Asset[]>([]);
+  const [zones, setZones] = useState<Zone[]>([]);
+  const [alerts, setAlerts] = useState<AlertItem[]>([]);
+  const [selectedAsset, setSelectedAsset] = useState<Asset | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const tickRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
-  const tick = useCallback(async () => {
-    const t0 = Date.now();
+  // ── Fetch helpers ────────────────────────────────────────────────────────
+  const fetchAssets = useCallback(async () => {
     try {
-      const r = await fetch(`${FN}/tick`, { method:"POST", headers:H });
-      if (!r.ok) throw new Error(`HTTP ${r.status}`);
-      const d = await r.json();
-      if (d.error) throw new Error(d.error);
-
-      // Maintain trails in memory
-      d.assets.forEach(a => {
-        if (!a.current_lat) return;
-        if (!trailsRef.current[a.id]) trailsRef.current[a.id] = [];
-        const t = trailsRef.current[a.id];
-        t.push({ lat: a.current_lat, lng: a.current_lon });
-        if (t.length > 100) t.shift();
-        a.trail = [...t];
+      const res = await fetch(`${FUNCTIONS_URL}/assets`, {
+        headers: { apikey: import.meta.env.VITE_SUPABASE_ANON_KEY ?? "" },
       });
-
-      setAssets(d.assets || []);
-      setZones(d.zones   || []);
-      setAlerts(prev => {
-        const known = new Set(prev.map(x => x.id));
-        const fresh = (d.alerts || []).filter(x => !known.has(x.id));
-        return [...fresh, ...prev].slice(0, 150);
-      });
-      setConnected(true);
-      setTickMs(Date.now() - t0);
-    } catch {
-      setConnected(false);
+      if (!res.ok) throw new Error(`assets: ${res.status}`);
+      const data: Asset[] = await res.json();
+      setAssets(Array.isArray(data) ? data : []);
+      setError(null);
+    } catch (e) {
+      console.error("fetchAssets:", e);
+      setError(String(e));
     }
   }, []);
 
-  // Tick every 1s
+  const fetchZones = useCallback(async () => {
+    try {
+      const res = await fetch(`${FUNCTIONS_URL}/fences`, {
+        headers: { apikey: import.meta.env.VITE_SUPABASE_ANON_KEY ?? "" },
+      });
+      if (!res.ok) throw new Error(`fences: ${res.status}`);
+      const data: Zone[] = await res.json();
+      setZones(Array.isArray(data) ? data : []);
+    } catch (e) {
+      console.error("fetchZones:", e);
+    }
+  }, []);
+
+  const fetchAlerts = useCallback(async () => {
+    try {
+      const res = await fetch(`${FUNCTIONS_URL}/alerts`, {
+        headers: { apikey: import.meta.env.VITE_SUPABASE_ANON_KEY ?? "" },
+      });
+      if (!res.ok) return;
+      const data: AlertItem[] = await res.json();
+      setAlerts(Array.isArray(data) ? data.slice(0, 50) : []);
+    } catch (e) {
+      console.error("fetchAlerts:", e);
+    }
+  }, []);
+
+  const tick = useCallback(async () => {
+    try {
+      await fetch(`${FUNCTIONS_URL}/tick`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          apikey: import.meta.env.VITE_SUPABASE_ANON_KEY ?? "",
+        },
+        body: JSON.stringify({}),
+      });
+      await fetchAssets();
+      await fetchAlerts();
+    } catch (e) {
+      console.error("tick:", e);
+    }
+  }, [fetchAssets, fetchAlerts]);
+
+  // ── Zone CRUD ────────────────────────────────────────────────────────────
+  const createZone = useCallback(async (payload: {
+    name: string;
+    zone_type: string;
+    center_lat: number;
+    center_lon: number;
+    radius_meters: number;
+    color?: string;
+    threat_level?: string;
+  }) => {
+    // Validate before sending
+    if (!payload.name?.trim()) throw new Error("Zone name is required");
+    if (typeof payload.center_lat !== "number" || isNaN(payload.center_lat))
+      throw new Error("Invalid latitude");
+    if (typeof payload.center_lon !== "number" || isNaN(payload.center_lon))
+      throw new Error("Invalid longitude");
+
+    const body = {
+      name: payload.name.trim(),
+      zone_type: payload.zone_type ?? "GEOFENCE",
+      center_lat: payload.center_lat,
+      center_lon: payload.center_lon,
+      radius_meters: payload.radius_meters ?? 5000,
+      color: payload.color ?? "#00ff88",
+      threat_level: payload.threat_level ?? "LOW",
+    };
+
+    const res = await fetch(`${FUNCTIONS_URL}/fences`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        apikey: import.meta.env.VITE_SUPABASE_ANON_KEY ?? "",
+      },
+      body: JSON.stringify(body),
+    });
+
+    if (!res.ok) {
+      const errData = await res.json().catch(() => ({ error: res.statusText }));
+      throw new Error(errData.error ?? `Server error ${res.status}`);
+    }
+
+    const created: Zone = await res.json();
+    setZones((prev) => [created, ...prev]);
+    return created;
+  }, []);
+
+  const deleteZone = useCallback(async (zoneId: string) => {
+    const res = await fetch(`${FUNCTIONS_URL}/fences/${zoneId}`, {
+      method: "DELETE",
+      headers: { apikey: import.meta.env.VITE_SUPABASE_ANON_KEY ?? "" },
+    });
+    if (!res.ok) throw new Error(`Delete failed: ${res.status}`);
+    setZones((prev) => prev.filter((z) => z.id !== zoneId));
+  }, []);
+
+  // ── Seed assets if empty ─────────────────────────────────────────────────
+  const seedAssets = useCallback(async () => {
+    await fetch(`${FUNCTIONS_URL}/assets`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        apikey: import.meta.env.VITE_SUPABASE_ANON_KEY ?? "",
+      },
+      body: JSON.stringify({ action: "seed" }),
+    });
+    await fetchAssets();
+  }, [fetchAssets]);
+
+  // ── Lifecycle ────────────────────────────────────────────────────────────
   useEffect(() => {
-    tick();
-    const id = setInterval(tick, 1000);
-    return () => clearInterval(id);
+    (async () => {
+      setLoading(true);
+      await Promise.all([fetchAssets(), fetchZones(), fetchAlerts()]);
+      setLoading(false);
+    })();
+  }, [fetchAssets, fetchZones, fetchAlerts]);
+
+  useEffect(() => {
+    tickRef.current = setInterval(tick, 2000);
+    return () => {
+      if (tickRef.current) clearInterval(tickRef.current);
+    };
   }, [tick]);
 
-  // Load armory on mount
+  // Update selectedAsset reference when assets refresh
   useEffect(() => {
-    fetch(`${FN}/armory`, { headers: H })
-      .then(r => r.json())
-      .then(d => setArmory(Array.isArray(d) ? d : []))
-      .catch(() => {});
-  }, []);
-
-  const runPathfind = useCallback(async (assetId, endLat, endLon, algo) => {
-    const asset = assets.find(a => a.id === assetId);
-    if (!asset?.current_lat) return null;
-    setPathLoading(true);
-    try {
-      const r = await fetch(`${FN}/pathfind`, {
-        method: "POST", headers: H,
-        body: JSON.stringify({
-          asset_id: assetId,
-          start_lat: asset.current_lat, start_lon: asset.current_lon,
-          end_lat: endLat, end_lon: endLon, algorithm: algo,
-        }),
-      });
-      const d = await r.json();
-      setPathResult({ ...d, assetId, algo });
-      return d;
-    } finally { setPathLoading(false); }
+    if (selectedAsset) {
+      const updated = assets.find((a) => a.id === selectedAsset.id);
+      if (updated) setSelectedAsset(updated);
+    }
   }, [assets]);
 
-  const runSimulation = useCallback(async (opId, assetIds, opType, objLat, objLon, terrain, weather, timeOfDay, hostileCount) => {
-    setSimLoading(true);
-    try {
-      const r = await fetch(`${FN}/simulate`, {
-        method: "POST", headers: H,
-        body: JSON.stringify({
-          operation_id: opId, asset_ids: assetIds, op_type: opType,
-          objective_lat: objLat, objective_lon: objLon,
-          terrain, weather, time_of_day: timeOfDay, hostile_count: hostileCount,
-        }),
-      });
-      const d = await r.json();
-      setSimResult(d);
-      return d;
-    } finally { setSimLoading(false); }
-  }, []);
-
-  const clearAlerts = useCallback(() => setAlerts([]), []);
-
-  const addZone = useCallback(async (form) => {
-    const r = await fetch(`${FN}/fences`, { method:"POST", headers:H, body:JSON.stringify(form) });
-    const z = await r.json();
-    setZones(prev => [...prev, z]);
-  }, []);
-
-  const removeZone = useCallback(async (id) => {
-    await fetch(`${FN}/fences?id=${id}`, { method:"DELETE", headers:H });
-    setZones(prev => prev.filter(z => z.id !== id));
-  }, []);
-
   return {
-    assets, zones, alerts, armory,
-    pathResult, simResult, simLoading, pathLoading,
-    connected, tickMs,
-    tick, runPathfind, runSimulation, clearAlerts, addZone, removeZone,
-    setPathResult, setSimResult,
+    assets,
+    zones,
+    alerts,
+    loading,
+    error,
+    selectedAsset,
+    setSelectedAsset,
+    createZone,
+    deleteZone,
+    seedAssets,
+    refreshAssets: fetchAssets,
+    refreshZones: fetchZones,
   };
 }
