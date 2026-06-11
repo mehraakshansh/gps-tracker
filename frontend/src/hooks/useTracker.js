@@ -23,8 +23,9 @@ export function useTracker() {
   const [zones,       setZones]       = useState([]);
   const [alerts,      setAlerts]      = useState([]);
   const [armory,      setArmory]      = useState([]);
-  const [pathResult,  setPathResult]  = useState(null);
-  const [simResult,   setSimResult]   = useState(null);
+  const [pathResult,   setPathResult]  = useState(null);
+  const [simResult,    setSimResult]   = useState(null);
+  const [simObjective, setSimObjective] = useState(null);
   const [pathLoading, setPathLoading] = useState(false);
   const [simLoading,  setSimLoading]  = useState(false);
   const [loading,     setLoading]     = useState(true);
@@ -194,6 +195,7 @@ export function useTracker() {
       if (!res.ok) throw new Error(`simulate ${res.status}`);
       const data = await res.json();
       setSimResult(data);
+      setSimObjective({ lat: objLat, lon: objLon });
       return data;
     } catch (e) {
       console.error("runSimulation:", e);
@@ -243,6 +245,8 @@ export function useTracker() {
     // sim
     simResult,
     setSimResult,
+    simObjective,
+    setSimObjective,
     simLoading,
     // zone actions
     addZone,
