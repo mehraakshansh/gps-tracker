@@ -16,6 +16,8 @@ function apiFetch(path, options = {}) {
   });
 }
 
+const TRAIL_MAX = 20; // positions to keep per asset
+
 export function useTracker() {
   const [assets,      setAssets]      = useState([]);
   const [zones,       setZones]       = useState([]);
@@ -29,7 +31,8 @@ export function useTracker() {
   const [error,       setError]       = useState(null);
   const [connected,   setConnected]   = useState(false);
   const [tickMs,      setTickMs]      = useState(null);
-  const tickRef = useRef(null);
+  const tickRef  = useRef(null);
+  const trailsRef = useRef(new Map()); // Map<assetId, {lat,lng}[]>
 
   // ── Fetchers ──────────────────────────────────────────────────────────────
   const fetchAssets = useCallback(async () => {
@@ -37,7 +40,19 @@ export function useTracker() {
       const res = await apiFetch("assets");
       if (!res.ok) throw new Error(`assets ${res.status}`);
       const data = await res.json();
-      setAssets(Array.isArray(data) ? data : []);
+      if (Array.isArray(data)) {
+        // Append current position to each asset's trail buffer
+        data.forEach(a => {
+          if (a.current_lat == null) return;
+          const trail = trailsRef.current.get(a.id) ?? [];
+          trail.push({ lat: a.current_lat, lng: a.current_lon });
+          if (trail.length > TRAIL_MAX) trail.splice(0, trail.length - TRAIL_MAX);
+          trailsRef.current.set(a.id, trail);
+        });
+        setAssets(data.map(a => ({ ...a, trail: trailsRef.current.get(a.id) ?? [] })));
+      } else {
+        setAssets([]);
+      }
       setError(null);
     } catch (e) {
       console.error("fetchAssets:", e);
