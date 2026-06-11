@@ -83,9 +83,10 @@ serve(async (req) => {
     }
 
     return new Response(JSON.stringify({ error: "not found" }), { status: 404, headers: corsHeaders });
-  } catch (err) {
-    console.error("assets fn error:", err);
-    return new Response(JSON.stringify({ error: String(err) }), {
+  } catch (err: unknown) {
+    const msg = err instanceof Error ? err.message : JSON.stringify(err);
+    console.error("assets fn error:", msg, err);
+    return new Response(JSON.stringify({ error: msg }), {
       status: 500,
       headers: { ...corsHeaders, "Content-Type": "application/json" },
     });
