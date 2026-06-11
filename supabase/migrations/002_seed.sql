@@ -68,14 +68,14 @@ ON CONFLICT DO NOTHING;
 
 -- ── ZONES ─────────────────────────────────────────────────────
 INSERT INTO zones (id, name, zone_type, center_lat, center_lon, radius_meters, color, threat_level) VALUES
-  ('z0000001-0000-0000-0000-000000000001','Forward Operating Base Alpha', 'FOB',        28.6180, 77.2100,  600, '#22c55e', 'GREEN'),
-  ('z0000001-0000-0000-0000-000000000002','Hostile Territory Red-1',      'HOSTILE',    28.6260, 77.2280,  500, '#ef4444', 'RED'),
-  ('z0000001-0000-0000-0000-000000000003','Restricted Zone Bravo',        'RESTRICTED', 28.6320, 77.2150,  400, '#f97316', 'ORANGE'),
-  ('z0000001-0000-0000-0000-000000000004','Civilian Protection Zone',     'CIVILIAN',   28.6090, 77.2200,  350, '#3b82f6', 'GREEN'),
-  ('z0000001-0000-0000-0000-000000000005','Armory Depot Gamma',           'FOB',        28.6050, 77.2050,  300, '#8b5cf6', 'GREEN'),
-  ('z0000001-0000-0000-0000-000000000006','No-Fly Zone Delta',            'NO_FLY',     28.6400, 77.2300,  800, '#ec4899', 'ORANGE'),
-  ('z0000001-0000-0000-0000-000000000007','Minefield Sector 7',           'MINEFIELD',  28.6350, 77.1980,  250, '#dc2626', 'RED'),
-  ('z0000001-0000-0000-0000-000000000008','Supply Route Charlie',         'SUPPLY',     28.6120, 77.2350,  200, '#0ea5e9', 'YELLOW')
+  ('c0000001-0000-0000-0000-000000000001','Forward Operating Base Alpha', 'FOB',        28.6180, 77.2100,  600, '#22c55e', 'GREEN'),
+  ('c0000001-0000-0000-0000-000000000002','Hostile Territory Red-1',      'HOSTILE',    28.6260, 77.2280,  500, '#ef4444', 'RED'),
+  ('c0000001-0000-0000-0000-000000000003','Restricted Zone Bravo',        'RESTRICTED', 28.6320, 77.2150,  400, '#f97316', 'ORANGE'),
+  ('c0000001-0000-0000-0000-000000000004','Civilian Protection Zone',     'CIVILIAN',   28.6090, 77.2200,  350, '#3b82f6', 'GREEN'),
+  ('c0000001-0000-0000-0000-000000000005','Armory Depot Gamma',           'FOB',        28.6050, 77.2050,  300, '#8b5cf6', 'GREEN'),
+  ('c0000001-0000-0000-0000-000000000006','No-Fly Zone Delta',            'NO_FLY',     28.6400, 77.2300,  800, '#ec4899', 'ORANGE'),
+  ('c0000001-0000-0000-0000-000000000007','Minefield Sector 7',           'MINEFIELD',  28.6350, 77.1980,  250, '#dc2626', 'RED'),
+  ('c0000001-0000-0000-0000-000000000008','Supply Route Charlie',         'SUPPLY',     28.6120, 77.2350,  200, '#0ea5e9', 'YELLOW')
 ON CONFLICT DO NOTHING;
 
 -- ── ARMORY INVENTORY ──────────────────────────────────────────
