@@ -17,12 +17,18 @@ function apiFetch(path, options = {}) {
 }
 
 export function useTracker() {
-  const [assets,        setAssets]        = useState([]);
-  const [zones,         setZones]         = useState([]);
-  const [alerts,        setAlerts]        = useState([]);
-  const [selectedAsset, setSelectedAsset] = useState(null);
-  const [loading,       setLoading]       = useState(true);
-  const [error,         setError]         = useState(null);
+  const [assets,      setAssets]      = useState([]);
+  const [zones,       setZones]       = useState([]);
+  const [alerts,      setAlerts]      = useState([]);
+  const [armory,      setArmory]      = useState([]);
+  const [pathResult,  setPathResult]  = useState(null);
+  const [simResult,   setSimResult]   = useState(null);
+  const [pathLoading, setPathLoading] = useState(false);
+  const [simLoading,  setSimLoading]  = useState(false);
+  const [loading,     setLoading]     = useState(true);
+  const [error,       setError]       = useState(null);
+  const [connected,   setConnected]   = useState(false);
+  const [tickMs,      setTickMs]      = useState(null);
   const tickRef = useRef(null);
 
   // ── Fetchers ──────────────────────────────────────────────────────────────
@@ -61,19 +67,34 @@ export function useTracker() {
     }
   }, []);
 
+  const fetchArmory = useCallback(async () => {
+    try {
+      const res = await apiFetch("armory");
+      if (!res.ok) return;
+      const data = await res.json();
+      setArmory(Array.isArray(data) ? data : []);
+    } catch (e) {
+      console.error("fetchArmory:", e);
+    }
+  }, []);
+
   // ── Tick — advance simulation ─────────────────────────────────────────────
   const tick = useCallback(async () => {
+    const t0 = Date.now();
     try {
       await apiFetch("tick", { method: "POST", body: JSON.stringify({}) });
       await fetchAssets();
       await fetchAlerts();
+      setConnected(true);
+      setTickMs(Date.now() - t0);
     } catch (e) {
       console.error("tick:", e);
+      setConnected(false);
     }
   }, [fetchAssets, fetchAlerts]);
 
   // ── Zone CRUD ─────────────────────────────────────────────────────────────
-  const createZone = useCallback(async (payload) => {
+  const addZone = useCallback(async (payload) => {
     if (!payload.name?.trim())          throw new Error("Zone name is required");
     if (typeof payload.center_lat !== "number" || isNaN(payload.center_lat))
       throw new Error("Invalid latitude");
@@ -81,13 +102,13 @@ export function useTracker() {
       throw new Error("Invalid longitude");
 
     const body = {
-      name:           payload.name.trim(),
-      zone_type:      payload.zone_type      ?? "GEOFENCE",
-      center_lat:     payload.center_lat,
-      center_lon:     payload.center_lon,
-      radius_meters:  payload.radius_meters  ?? 5000,
-      color:          payload.color          ?? "#00ff88",
-      threat_level:   payload.threat_level   ?? "LOW",
+      name:          payload.name.trim(),
+      zone_type:     payload.zone_type     ?? "GEOFENCE",
+      center_lat:    payload.center_lat,
+      center_lon:    payload.center_lon,
+      radius_meters: payload.radius_meters ?? 5000,
+      color:         payload.color         ?? "#00ff88",
+      threat_level:  payload.threat_level  ?? "LOW",
     };
 
     const res = await apiFetch("fences", { method: "POST", body: JSON.stringify(body) });
@@ -100,18 +121,76 @@ export function useTracker() {
     return created;
   }, []);
 
-  const deleteZone = useCallback(async (zoneId) => {
+  const removeZone = useCallback(async (zoneId) => {
     const res = await apiFetch(`fences/${zoneId}`, { method: "DELETE" });
     if (!res.ok) throw new Error(`Delete failed: ${res.status}`);
     setZones((prev) => prev.filter((z) => z.id !== zoneId));
   }, []);
 
+  // ── Alerts ────────────────────────────────────────────────────────────────
+  const clearAlerts = useCallback(async () => {
+    try {
+      await apiFetch("alerts", { method: "DELETE" });
+      setAlerts([]);
+    } catch (e) {
+      console.error("clearAlerts:", e);
+      setAlerts([]);
+    }
+  }, []);
+
+  // ── Pathfinding ───────────────────────────────────────────────────────────
+  const runPathfind = useCallback(async (assetId, endLat, endLon, algo = "ASTAR") => {
+    setPathLoading(true);
+    try {
+      const res = await apiFetch("pathfind", {
+        method: "POST",
+        body: JSON.stringify({ asset_id: assetId, end_lat: endLat, end_lon: endLon, algo }),
+      });
+      if (!res.ok) throw new Error(`pathfind ${res.status}`);
+      const data = await res.json();
+      setPathResult(data);
+      return data;
+    } catch (e) {
+      console.error("runPathfind:", e);
+      throw e;
+    } finally {
+      setPathLoading(false);
+    }
+  }, []);
+
+  // ── Simulation ────────────────────────────────────────────────────────────
+  const runSimulation = useCallback(async (opId, assetIds, opType, objLat, objLon, terrain, weather, timeOfDay, hostileStrength) => {
+    setSimLoading(true);
+    try {
+      const res = await apiFetch("simulate", {
+        method: "POST",
+        body: JSON.stringify({
+          operation_id:     opId,
+          asset_ids:        assetIds,
+          op_type:          opType,
+          objective_lat:    objLat,
+          objective_lon:    objLon,
+          terrain,
+          weather,
+          time_of_day:      timeOfDay,
+          hostile_strength: hostileStrength,
+        }),
+      });
+      if (!res.ok) throw new Error(`simulate ${res.status}`);
+      const data = await res.json();
+      setSimResult(data);
+      return data;
+    } catch (e) {
+      console.error("runSimulation:", e);
+      throw e;
+    } finally {
+      setSimLoading(false);
+    }
+  }, []);
+
   // ── Force re-seed assets ──────────────────────────────────────────────────
   const seedAssets = useCallback(async () => {
-    await apiFetch("assets", {
-      method: "POST",
-      body: JSON.stringify({ action: "seed" }),
-    });
+    await apiFetch("assets", { method: "POST", body: JSON.stringify({ action: "seed" }) });
     await fetchAssets();
   }, [fetchAssets]);
 
@@ -119,8 +198,9 @@ export function useTracker() {
   useEffect(() => {
     (async () => {
       setLoading(true);
-      await Promise.all([fetchAssets(), fetchZones(), fetchAlerts()]);
+      await Promise.all([fetchAssets(), fetchZones(), fetchAlerts(), fetchArmory()]);
       setLoading(false);
+      setConnected(true);
     })();
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -130,23 +210,34 @@ export function useTracker() {
     return () => clearInterval(tickRef.current);
   }, [tick]);
 
-  // ── Keep selectedAsset in sync with live data ─────────────────────────────
-  useEffect(() => {
-    if (!selectedAsset) return;
-    const live = assets.find((a) => a.id === selectedAsset.id);
-    if (live) setSelectedAsset(live);
-  }, [assets]); // eslint-disable-line react-hooks/exhaustive-deps
-
   return {
+    // data
     assets,
     zones,
     alerts,
+    armory,
+    // status
     loading,
     error,
-    selectedAsset,
-    setSelectedAsset,
-    createZone,
-    deleteZone,
+    connected,
+    tickMs,
+    // path
+    pathResult,
+    setPathResult,
+    pathLoading,
+    // sim
+    simResult,
+    setSimResult,
+    simLoading,
+    // zone actions
+    addZone,
+    removeZone,
+    // alert actions
+    clearAlerts,
+    // operation actions
+    runPathfind,
+    runSimulation,
+    // misc
     seedAssets,
     refreshAssets: fetchAssets,
     refreshZones:  fetchZones,
