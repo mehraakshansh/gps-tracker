@@ -276,22 +276,44 @@ export default function MapView({
     const origin = asset ? [asset.current_lat,asset.current_lon] : null;
     const wps = orderMode.waypoints.map(w => [w.lat,w.lon]);
     const points = origin ? [origin,...wps] : wps;
+    const patrol = orderMode.patrol ?? true;
 
     if (points.length >= 2) {
-      // Double line effect for fantasy route
-      orderLayRef.current.push(L.polyline(points,{color:"#d4a84388",weight:5,dashArray:"12,6",opacity:0.5}).addTo(m));
+      // Double line — thick glow + thin bright
+      orderLayRef.current.push(L.polyline(points,{color:"#d4a84355",weight:6,dashArray:null,opacity:0.45}).addTo(m));
       orderLayRef.current.push(L.polyline(points,{color:"#d4a843",weight:2,dashArray:"8,5",opacity:0.95}).addTo(m));
+
+      // Patrol closing line back to origin
+      if (patrol && origin && wps.length >= 1) {
+        const closingPts = [wps[wps.length-1], origin];
+        orderLayRef.current.push(L.polyline(closingPts,{color:"#d4a84366",weight:2,dashArray:"6,10",opacity:0.65}).addTo(m));
+        // Midpoint loop label
+        const mid = [
+          (closingPts[0][0]+closingPts[1][0])/2,
+          (closingPts[0][1]+closingPts[1][1])/2,
+        ];
+        const loopIc = L.divIcon({
+          className:"",
+          html:`<div style="background:rgba(8,4,12,0.92);border:1px solid #d4a84366;border-radius:4px;
+            padding:2px 7px;font-family:'Courier New',monospace;font-size:7px;color:#d4a843aa;
+            font-weight:700;letter-spacing:1px;white-space:nowrap;">↩ LOOP</div>`,
+          iconAnchor:[28,8],
+        });
+        orderLayRef.current.push(L.marker(mid,{icon:loopIc,interactive:false}).addTo(m));
+      }
     }
 
     wps.forEach((ll,i) => {
+      const isLast = i===wps.length-1;
       const ic = L.divIcon({
         className:"",
-        html:`<div style="width:16px;height:16px;border-radius:50%;
-          background:radial-gradient(circle,#d4a843,#8b6010);
-          border:2px solid #fff;box-shadow:0 0 12px #d4a843,0 0 4px #fff;
+        html:`<div style="width:18px;height:18px;border-radius:50%;
+          background:radial-gradient(circle,${isLast&&!patrol?"#ff6b1a":"#d4a843"},#8b6010);
+          border:2px solid ${isLast&&!patrol?"#fff8":"#fff"};
+          box-shadow:0 0 12px ${isLast&&!patrol?"#ff6b1a":"#d4a843"},0 0 4px #fff;
           display:flex;align-items:center;justify-content:center;
           font-size:8px;color:#000;font-weight:900;">${i+1}</div>`,
-        iconSize:[16,16], iconAnchor:[8,8],
+        iconSize:[18,18], iconAnchor:[9,9],
       });
       orderLayRef.current.push(L.marker(ll,{icon:ic,interactive:false}).addTo(m));
     });

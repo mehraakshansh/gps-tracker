@@ -319,10 +319,10 @@ export function useTracker() {
   }, [fetchAssets]);
 
   // ── Issue movement order (replace waypoints for an asset) ────────────────
-  const issueOrder = useCallback(async (assetId, waypoints) => {
+  const issueOrder = useCallback(async (assetId, waypoints, patrol = true) => {
     const res = await apiFetch("assets", {
       method: "POST",
-      body: JSON.stringify({ action: "waypoints", asset_id: assetId, waypoints }),
+      body: JSON.stringify({ action: "waypoints", asset_id: assetId, waypoints, patrol_mode: patrol }),
     });
     if (!res.ok) {
       const err = await res.json().catch(() => ({ error: res.statusText }));

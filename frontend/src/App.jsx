@@ -300,7 +300,7 @@ function AssetCard({ asset, onClose, onOrder, orderMode }) {
           fontFamily:"'Courier New',monospace", letterSpacing:2,
           transition:"all .15s",
           boxShadow:orderMode?`0 0 16px ${C.bravo}33`:"none",
-        }}>{orderMode?"🎯  DISPATCHING ORDERS...":"▶  ISSUE MOVEMENT ORDERS"}</button>
+        }}>{orderMode ? `🎯  DISPATCHING ORDERS (${orderMode.waypoints?.length||0} pts)` : "▶  ISSUE MOVEMENT ORDERS"}</button>
       )}
 
       {(asset.zoneStatus||[]).filter(z=>z.state==="IN").map(z=>(
@@ -400,43 +400,197 @@ function MatchHUD({ ms, bravoLive, alphaLive }) {
 }
 
 // ── Order Mode Overlay ────────────────────────────────────────────────────────
-function OrderOverlay({ orderMode, onConfirm, onCancel }) {
+function OrderOverlay({ orderMode, setOrderMode, onConfirm, onCancel }) {
   if (!orderMode) return null;
+  const { callsign, waypoints, patrol = true } = orderMode;
+
+  const removeWp   = idx => setOrderMode(prev => ({ ...prev, waypoints: prev.waypoints.filter((_,i) => i!==idx) }));
+  const undo       = ()  => setOrderMode(prev => ({ ...prev, waypoints: prev.waypoints.slice(0,-1) }));
+  const toggleMode = ()  => setOrderMode(prev => ({ ...prev, patrol: !prev.patrol }));
+  const moveWp = (idx, dir) => {
+    const wps = [...waypoints];
+    const t = idx + dir;
+    if (t < 0 || t >= wps.length) return;
+    [wps[idx], wps[t]] = [wps[t], wps[idx]];
+    setOrderMode(prev => ({ ...prev, waypoints: wps }));
+  };
+
+  // Live distance estimate (Haversine-lite)
+  const totalKm = waypoints.reduce((acc, wp, i) => {
+    if (i === 0) return acc;
+    const p = waypoints[i-1];
+    const dlat = (wp.lat - p.lat) * 111;
+    const dlon = (wp.lon - p.lon) * 111 * Math.cos(p.lat * Math.PI / 180);
+    return acc + Math.sqrt(dlat*dlat + dlon*dlon);
+  }, 0);
+
+  const btnBase = { borderRadius:6, padding:"7px 14px", fontSize:10, fontWeight:700,
+    cursor:"pointer", fontFamily:"'Courier New',monospace", letterSpacing:1, border:"none" };
+
   return (
     <>
+      {/* ── Top command banner ──────────────────────────────────── */}
       <div style={{
-        position:"absolute", top:10, left:"50%", transform:"translateX(-50%)",
+        position:"absolute", top:118, left:"50%", transform:"translateX(-50%)",
         zIndex:700,
         background:"linear-gradient(160deg,rgba(20,14,4,0.98),rgba(8,6,14,0.98))",
         border:`1px solid ${C.bravo}77`, borderTop:`2px solid ${C.bravo}`,
-        borderRadius:10, padding:"12px 22px",
-        display:"flex", alignItems:"center", gap:16,
+        borderRadius:10, padding:"11px 18px",
+        display:"flex", alignItems:"center", gap:12, flexWrap:"wrap",
         fontFamily:"'Courier New',monospace",
         backdropFilter:"blur(16px)",
         boxShadow:`0 0 40px rgba(212,168,67,0.2), 0 0 0 1px rgba(212,168,67,0.05)`,
-        marginTop:100,
+        maxWidth:700,
       }}>
-        <span style={{ fontSize:22, filter:`drop-shadow(0 0 8px ${C.bravo})` }}>🎯</span>
-        <div>
-          <div style={{ fontSize:10, color:C.bravo, fontWeight:700, letterSpacing:2.5 }}>ORDERS — {orderMode.callsign}</div>
-          <div style={{ fontSize:8, color:C.sub }}>{orderMode.waypoints.length} waypoint{orderMode.waypoints.length!==1?"s":""} marked · click map to add more</div>
+        <span style={{ fontSize:22, filter:`drop-shadow(0 0 8px ${C.bravo})`, flexShrink:0 }}>🎯</span>
+
+        {/* Unit + stats */}
+        <div style={{ flexShrink:0 }}>
+          <div style={{ fontSize:10, color:C.bravo, fontWeight:700, letterSpacing:2.5 }}>ORDERS — {callsign}</div>
+          <div style={{ fontSize:8, color:C.sub, marginTop:1 }}>
+            {waypoints.length} waypoint{waypoints.length!==1?"s":""}
+            {totalKm > 0 ? ` · ~${totalKm.toFixed(0)} km` : ""} · click map to add
+          </div>
         </div>
-        <div style={{ display:"flex", gap:8, marginLeft:6 }}>
-          <button onClick={onConfirm} disabled={orderMode.waypoints.length===0} style={{
+
+        <div style={{ width:1, height:32, background:C.border, flexShrink:0 }}/>
+
+        {/* Patrol / One-Way toggle */}
+        <div style={{ display:"flex", gap:4, flexShrink:0 }}>
+          <button onClick={() => !patrol && toggleMode()} style={{
+            ...btnBase,
+            background: patrol ? `${C.bravo}20` : "rgba(255,255,255,0.03)",
+            border: `1px solid ${patrol ? C.bravo : "rgba(255,255,255,0.08)"}`,
+            color: patrol ? C.bravo : C.muted,
+            boxShadow: patrol ? `0 0 10px ${C.bravo}33` : "none",
+          }}>🔄 PATROL</button>
+          <button onClick={() => patrol && toggleMode()} style={{
+            ...btnBase,
+            background: !patrol ? `${C.fire}20` : "rgba(255,255,255,0.03)",
+            border: `1px solid ${!patrol ? C.fire : "rgba(255,255,255,0.08)"}`,
+            color: !patrol ? C.fire : C.muted,
+            boxShadow: !patrol ? `0 0 10px ${C.fire}33` : "none",
+          }}>→ ONE-WAY</button>
+        </div>
+
+        <div style={{ width:1, height:32, background:C.border, flexShrink:0 }}/>
+
+        {/* Action buttons */}
+        <div style={{ display:"flex", gap:6, flexShrink:0 }}>
+          <button onClick={undo} disabled={waypoints.length===0} style={{
+            ...btnBase,
+            background:"rgba(255,255,255,0.04)", border:`1px solid ${C.border}`,
+            color: waypoints.length===0 ? C.muted : C.sub,
+            cursor: waypoints.length===0 ? "not-allowed" : "pointer",
+            opacity: waypoints.length===0 ? 0.35 : 1,
+          }}>⌫ UNDO</button>
+          <button onClick={onConfirm} disabled={waypoints.length===0} style={{
+            ...btnBase,
             background:`${C.bravo}1e`, border:`1px solid ${C.bravo}77`, color:C.bravo,
-            borderRadius:6, padding:"7px 18px", fontSize:10, fontWeight:700,
-            cursor:orderMode.waypoints.length===0?"not-allowed":"pointer",
-            fontFamily:"'Courier New',monospace", letterSpacing:1.5,
-            opacity:orderMode.waypoints.length===0?0.35:1,
-            boxShadow:orderMode.waypoints.length>0?`0 0 14px ${C.bravo}33`:"none",
+            cursor: waypoints.length===0 ? "not-allowed" : "pointer",
+            opacity: waypoints.length===0 ? 0.35 : 1,
+            boxShadow: waypoints.length>0 ? `0 0 14px ${C.bravo}33` : "none",
           }}>CONFIRM ✓</button>
           <button onClick={onCancel} style={{
+            ...btnBase,
             background:`${C.alpha}12`, border:`1px solid ${C.alpha}55`, color:C.alpha,
-            borderRadius:6, padding:"7px 16px", fontSize:10, fontWeight:700,
-            cursor:"pointer", fontFamily:"'Courier New',monospace", letterSpacing:1,
           }}>CANCEL ✕</button>
         </div>
       </div>
+
+      {/* ── Waypoint list panel (right side) ───────────────────── */}
+      {waypoints.length > 0 && (
+        <div style={{
+          position:"absolute", right:10, top:"50%", transform:"translateY(-50%)",
+          zIndex:700, width:210,
+          background:"linear-gradient(160deg,rgba(14,10,4,0.97),rgba(8,6,14,0.97))",
+          border:`1px solid ${C.border}`, borderTop:`2px solid ${C.bravo}`,
+          borderRadius:10, padding:"12px 0", fontFamily:"'Courier New',monospace",
+          backdropFilter:"blur(16px)", maxHeight:360, display:"flex", flexDirection:"column",
+          boxShadow:`-4px 0 40px rgba(0,0,0,0.5), 0 0 20px rgba(212,168,67,0.08)`,
+        }}>
+          <div style={{ fontSize:8, color:C.bravo, fontWeight:700, letterSpacing:2,
+            padding:"0 14px 8px", borderBottom:`1px solid ${C.border}`, flexShrink:0,
+            textShadow:`0 0 8px ${C.bravo}` }}>
+            ⚔ ROUTE PLAN
+          </div>
+
+          {/* Scrollable list */}
+          <div style={{ overflowY:"auto", flex:1, padding:"6px 0" }}>
+            {waypoints.map((wp, i) => (
+              <div key={i} style={{
+                display:"flex", alignItems:"center", gap:5, padding:"5px 10px",
+                borderBottom:`1px solid rgba(212,168,67,0.05)`,
+                transition:"background .1s",
+              }}>
+                {/* Index badge */}
+                <div style={{
+                  width:18, height:18, borderRadius:"50%", flexShrink:0,
+                  background:`radial-gradient(circle,${C.bravo},#8b6010)`,
+                  border:"1px solid rgba(255,255,255,0.3)",
+                  display:"flex", alignItems:"center", justifyContent:"center",
+                  fontSize:8, fontWeight:900, color:"#000",
+                }}>{i+1}</div>
+
+                {/* Coords */}
+                <div style={{ flex:1, minWidth:0 }}>
+                  <div style={{ fontSize:7.5, color:C.text, fontWeight:600, letterSpacing:0.3 }}>
+                    {wp.lat.toFixed(3)}°N
+                  </div>
+                  <div style={{ fontSize:7.5, color:C.sub }}>
+                    {wp.lon.toFixed(3)}°E
+                  </div>
+                </div>
+
+                {/* Reorder + delete */}
+                <div style={{ display:"flex", gap:2, flexShrink:0 }}>
+                  <button onClick={() => moveWp(i,-1)} disabled={i===0} style={{
+                    background:"transparent", border:`1px solid ${C.border}`, color:i===0?C.muted:C.sub,
+                    borderRadius:3, width:16, height:16, fontSize:9, cursor:i===0?"not-allowed":"pointer",
+                    display:"flex", alignItems:"center", justifyContent:"center", padding:0,
+                    fontFamily:"inherit", opacity:i===0?0.25:1,
+                  }}>↑</button>
+                  <button onClick={() => moveWp(i,1)} disabled={i===waypoints.length-1} style={{
+                    background:"transparent", border:`1px solid ${C.border}`, color:i===waypoints.length-1?C.muted:C.sub,
+                    borderRadius:3, width:16, height:16, fontSize:9, cursor:i===waypoints.length-1?"not-allowed":"pointer",
+                    display:"flex", alignItems:"center", justifyContent:"center", padding:0,
+                    fontFamily:"inherit", opacity:i===waypoints.length-1?0.25:1,
+                  }}>↓</button>
+                  <button onClick={() => removeWp(i)} style={{
+                    background:`${C.alpha}12`, border:`1px solid ${C.alpha}33`, color:C.alpha,
+                    borderRadius:3, width:16, height:16, fontSize:9, cursor:"pointer",
+                    display:"flex", alignItems:"center", justifyContent:"center", padding:0,
+                    fontFamily:"inherit",
+                  }}>✕</button>
+                </div>
+              </div>
+            ))}
+          </div>
+
+          {/* Patrol loop indicator */}
+          {patrol && (
+            <div style={{
+              padding:"7px 14px 0", borderTop:`1px solid ${C.border}`, flexShrink:0,
+              fontSize:8, color:C.bravo, display:"flex", alignItems:"center", gap:5,
+            }}>
+              <span style={{ fontSize:11 }}>↩</span>
+              <span>loops back to origin</span>
+            </div>
+          )}
+
+          {/* Distance total */}
+          {totalKm > 0 && (
+            <div style={{ padding:"6px 14px 2px", flexShrink:0 }}>
+              <div style={{ fontSize:8, display:"flex", justifyContent:"space-between" }}>
+                <span style={{ color:C.muted }}>TOTAL ROUTE</span>
+                <span style={{ color:C.bravo, fontWeight:700 }}>{totalKm.toFixed(0)} km</span>
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* ── Center crosshair hint ───────────────────────────────── */}
       <div style={{
         position:"absolute", top:"50%", left:"50%", transform:"translate(-50%,-50%)",
         zIndex:600, pointerEvents:"none", textAlign:"center",
@@ -444,7 +598,10 @@ function OrderOverlay({ orderMode, onConfirm, onCancel }) {
         color:C.bravo, textShadow:`0 0 24px ${C.bravo}`,
       }}>
         <div style={{ fontSize:12, fontWeight:700, letterSpacing:2 }}>CLICK MAP TO MARK WAYPOINTS</div>
-        <div style={{ fontSize:9, color:C.sub, marginTop:4 }}>{orderMode.waypoints.length} point{orderMode.waypoints.length!==1?"s":""} planned</div>
+        <div style={{ fontSize:9, color:C.sub, marginTop:4 }}>
+          {waypoints.length} point{waypoints.length!==1?"s":""} planned
+          {patrol ? " · PATROL LOOP" : " · ONE-WAY"}
+        </div>
       </div>
     </>
   );
@@ -606,7 +763,7 @@ export default function App() {
     const result = await tracker.executeCommand(cmd);
     if (result.ok && result.msg?.startsWith("__ORDER__:")) {
       const [, assetId, callsign] = result.msg.split(":");
-      setOrderMode({ assetId, callsign, waypoints:[] });
+      setOrderMode({ assetId, callsign, waypoints:[], patrol:true });
       setSelectedAsset(assetId);
       addToast(`🎯 ORDERS — ${callsign}. Mark waypoints on the map.`, true);
       return result;
@@ -838,12 +995,14 @@ export default function App() {
           {/* Order mode overlay */}
           <OrderOverlay
             orderMode={orderMode}
+            setOrderMode={setOrderMode}
             onConfirm={async () => {
               if (!orderMode?.waypoints?.length) { setOrderMode(null); return; }
               try {
-                await tracker.issueOrder(orderMode.assetId, orderMode.waypoints);
+                await tracker.issueOrder(orderMode.assetId, orderMode.waypoints, orderMode.patrol ?? true);
                 setOrderMode(null);
-                addToast("✓ Orders dispatched — unit re-routing", true);
+                const modeLabel = (orderMode.patrol ?? true) ? "PATROL" : "ONE-WAY";
+                addToast(`✓ Orders dispatched — ${modeLabel} route (${orderMode.waypoints.length} waypoints)`, true);
               } catch(e) { addToast("Orders failed: "+e.message, false); }
             }}
             onCancel={() => setOrderMode(null)}
@@ -853,7 +1012,7 @@ export default function App() {
           <AssetCard
             asset={selectedA}
             onClose={() => setSelectedAsset(null)}
-            onOrder={() => selectedA && setOrderMode({ assetId:selectedA.id, callsign:selectedA.callsign??selectedA.name, waypoints:[] })}
+            onOrder={() => selectedA && setOrderMode({ assetId:selectedA.id, callsign:selectedA.callsign??selectedA.name, waypoints:[], patrol:true })}
             orderMode={orderMode?.assetId===selectedA?.id ? orderMode : null}
           />
 

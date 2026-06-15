@@ -81,7 +81,7 @@ Deno.serve(async (req) => {
       // ── POST { action:"waypoints", asset_id, waypoints:[{lat,lon}] } ──
       // Replace route_waypoints for one asset and reset its simulator_state
       if (body.action === "waypoints") {
-        const { asset_id, waypoints } = body;
+        const { asset_id, waypoints, patrol_mode = true } = body;
         if (!asset_id || !Array.isArray(waypoints) || waypoints.length === 0) {
           return new Response(JSON.stringify({ error: "asset_id and waypoints[] required" }), {
             status: 400, headers: corsHeaders,
@@ -106,9 +106,9 @@ Deno.serve(async (req) => {
         }));
         const { error: we } = await supabase.from("route_waypoints").insert(rows);
         if (we) throw we;
-        // Reset sim state so asset starts from waypoint 0
+        // Reset sim state so asset starts from waypoint 0; persist patrol mode
         await supabase.from("simulator_state").upsert(
-          { asset_id, step_idx: 0, updated_at: new Date().toISOString() },
+          { asset_id, step_idx: 0, patrol_mode, updated_at: new Date().toISOString() },
           { onConflict: "asset_id" }
         );
         return new Response(JSON.stringify({ ok: true, asset_id, waypoints: rows.length }), {
