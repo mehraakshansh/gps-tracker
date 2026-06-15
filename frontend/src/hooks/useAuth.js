@@ -1,12 +1,14 @@
 import { useState, useEffect, useCallback, useRef } from "react";
 import { supabase } from "../lib/supabase";
 
-async function recordSessionStart(userId) {
+async function recordSessionStart(userId, email) {
   try {
     const { data } = await supabase.from("user_sessions").insert({
-      user_id:    userId,
-      started_at: new Date().toISOString(),
+      user_uid:   userId,
+      user_email: email ?? null,
+      login_at:   new Date().toISOString(),
       user_agent: navigator.userAgent.slice(0, 500),
+      is_active:  true,
     }).select("id").single();
     return data?.id ?? null;
   } catch {
@@ -18,7 +20,7 @@ async function recordSessionEnd(sessionRowId) {
   if (!sessionRowId) return;
   try {
     await supabase.from("user_sessions")
-      .update({ ended_at: new Date().toISOString() })
+      .update({ logout_at: new Date().toISOString(), is_active: false })
       .eq("id", sessionRowId);
   } catch { /* non-critical */ }
 }
@@ -43,7 +45,7 @@ export function useAuth() {
       if (sess) setAuthError(null);
 
       if (event === "SIGNED_IN" && sess?.user && !sessionRowId.current) {
-        recordSessionStart(sess.user.id).then(id => { sessionRowId.current = id; });
+        recordSessionStart(sess.user.id, sess.user.email).then(id => { sessionRowId.current = id; });
       }
       if (event === "SIGNED_OUT") {
         recordSessionEnd(sessionRowId.current);
