@@ -129,10 +129,10 @@ export default function App() {
   const timeStr = `${pad(clock.getHours())}:${pad(clock.getMinutes())}:${pad(clock.getSeconds())}`;
   const dateStr = clock.toLocaleDateString("en-IN",{ day:"2-digit", month:"short", year:"numeric" });
 
-  const critCount = tracker.alerts.filter(a => a.severity==="CRITICAL"||a.severity==="EMERGENCY").length;
-  const inHostile = tracker.assets.filter(a => (a.zoneStatus||[]).some(z=>z.zoneType==="HOSTILE"&&z.state==="IN")).length;
-  const haltedCount = tracker.assets.filter(a => ["HALTED","MAINTENANCE","DISABLED"].includes((a.status||"").toUpperCase())).length;
-  const engagedCount = tracker.assets.filter(a => (a.status||"").toUpperCase()==="ENGAGED").length;
+  const critCount = (tracker.alerts||[]).filter(a => a.severity==="CRITICAL"||a.severity==="EMERGENCY").length;
+  const inHostile = (tracker.assets||[]).filter(a => (a.zoneStatus||[]).some(z=>z.zoneType==="HOSTILE"&&z.state==="IN")).length;
+  const haltedCount = (tracker.assets||[]).filter(a => ["HALTED","MAINTENANCE","DISABLED"].includes((a.status||"").toUpperCase())).length;
+  const engagedCount = (tracker.assets||[]).filter(a => (a.status||"").toUpperCase()==="ENGAGED").length;
 
   return (
     <div style={{ display:"flex", flexDirection:"column", height:"100vh", background:"#010a03", overflow:"hidden", fontFamily:"'Courier New',monospace" }}>
