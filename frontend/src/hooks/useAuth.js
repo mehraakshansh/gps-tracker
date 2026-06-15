@@ -1,11 +1,34 @@
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import { supabase } from "../lib/supabase";
+
+async function recordSessionStart(userId) {
+  try {
+    const { data } = await supabase.from("user_sessions").insert({
+      user_id:    userId,
+      started_at: new Date().toISOString(),
+      user_agent: navigator.userAgent.slice(0, 500),
+    }).select("id").single();
+    return data?.id ?? null;
+  } catch {
+    return null;
+  }
+}
+
+async function recordSessionEnd(sessionRowId) {
+  if (!sessionRowId) return;
+  try {
+    await supabase.from("user_sessions")
+      .update({ ended_at: new Date().toISOString() })
+      .eq("id", sessionRowId);
+  } catch { /* non-critical */ }
+}
 
 export function useAuth() {
   const [session,  setSession]  = useState(null);
   const [user,     setUser]     = useState(null);
   const [loading,  setLoading]  = useState(true);
   const [authError, setAuthError] = useState(null);
+  const sessionRowId = useRef(null);
 
   useEffect(() => {
     supabase.auth.getSession().then(({ data }) => {
@@ -14,10 +37,18 @@ export function useAuth() {
       setLoading(false);
     });
 
-    const { data: sub } = supabase.auth.onAuthStateChange((_event, sess) => {
+    const { data: sub } = supabase.auth.onAuthStateChange((event, sess) => {
       setSession(sess);
       setUser(sess?.user ?? null);
       if (sess) setAuthError(null);
+
+      if (event === "SIGNED_IN" && sess?.user && !sessionRowId.current) {
+        recordSessionStart(sess.user.id).then(id => { sessionRowId.current = id; });
+      }
+      if (event === "SIGNED_OUT") {
+        recordSessionEnd(sessionRowId.current);
+        sessionRowId.current = null;
+      }
     });
 
     return () => sub.subscription.unsubscribe();
