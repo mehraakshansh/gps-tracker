@@ -666,20 +666,207 @@ function ArmoryTab({ armory }) {
   );
 }
 
+// ── SCENARIOS TAB ──────────────────────────────────────────────
+const SCENARIO_TYPES = ["PATROL","STRIKE","RECON","RESCUE","AMBUSH","SIEGE","AIRSTRIKE","NAVAL","SUPPLY","EXERCISE"];
+const DIFFICULTIES   = ["EASY","MEDIUM","HARD","ELITE"];
+const DIFF_COLOR     = { EASY:"#2ecc71", MEDIUM:"#d4a843", HARD:"#d47820", ELITE:"#c41e3a" };
+const TYPE_COLOR     = { PATROL:"#4a8aaa", STRIKE:"#c41e3a", RECON:"#9b59d0", RESCUE:"#2ecc71", AMBUSH:"#d47820",
+                         SIEGE:"#c41e3a", AIRSTRIKE:"#7ecfea", NAVAL:"#4a8aaa", SUPPLY:"#3a8a5a", EXERCISE:"#d4a843" };
+
+function ScenariosTab({ assets, zones, scenarios, scenarioLoading, onSave, onLoad, onDelete, user }) {
+  const [saveOpen, setSaveOpen] = useState(false);
+  const [saving,   setSaving]   = useState(false);
+  const [form, setF] = useState({
+    name: "", description: "", scenario_type: "PATROL", difficulty: "MEDIUM", duration_min: "30",
+  });
+  const set = k => e => setF(f => ({ ...f, [k]: e.target.value }));
+  const [confirm, setConfirm] = useState(null); // scenario_id pending load confirm
+
+  const handleSave = async e => {
+    e.preventDefault();
+    if (!form.name.trim()) return;
+    setSaving(true);
+    try {
+      await onSave(
+        { ...form, duration_min: Number(form.duration_min) || 30, created_by: user?.email ?? "" },
+        assets,
+        zones,
+      );
+      setSaveOpen(false);
+      setF({ name:"", description:"", scenario_type:"PATROL", difficulty:"MEDIUM", duration_min:"30" });
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const handleLoad = async id => {
+    setConfirm(null);
+    await onLoad(id);
+  };
+
+  return (
+    <>
+      {/* Save button */}
+      <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:10 }}>
+        <span style={{ fontSize:10, color:T.muted }}>{scenarios.length} saved scenarios</span>
+        <Btn onClick={() => setSaveOpen(v => !v)} color={saveOpen ? T.red : T.g2} small>
+          {saveOpen ? "✕ CANCEL" : "💾 SAVE STATE"}
+        </Btn>
+      </div>
+
+      {/* Save form */}
+      {saveOpen && (
+        <form onSubmit={handleSave} style={{
+          background:T.bg0, border:`1px solid ${T.dim}`,
+          borderTop:`2px solid ${T.g2}`, borderRadius:3, padding:10, marginBottom:10,
+        }}>
+          <div style={{ fontSize:10, fontWeight:700, color:T.g2, letterSpacing:1, marginBottom:8 }}>
+            SAVE CURRENT BATTLEFIELD STATE
+          </div>
+          <div style={{ fontSize:8, color:T.muted, marginBottom:6, padding:"4px 6px",
+            background:"rgba(212,168,67,0.05)", borderRadius:2, borderLeft:`2px solid ${T.g2}55` }}>
+            Captures {assets.length} unit{assets.length!==1?"s":""} + {zones.length} zone{zones.length!==1?"s":""}
+            at their current positions
+          </div>
+
+          <label style={{ display:"block", fontSize:8, color:T.muted, marginBottom:6 }}>
+            SCENARIO NAME *
+            <input value={form.name} onChange={set("name")} required placeholder="Exercise THUNDER STRIKE" style={inp}/>
+          </label>
+          <label style={{ display:"block", fontSize:8, color:T.muted, marginBottom:6 }}>
+            DESCRIPTION
+            <input value={form.description} onChange={set("description")} placeholder="Optional briefing notes" style={inp}/>
+          </label>
+
+          <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:5, marginBottom:6 }}>
+            <label style={{ fontSize:8, color:T.muted }}>
+              TYPE
+              <select value={form.scenario_type} onChange={set("scenario_type")} style={inp}>
+                {SCENARIO_TYPES.map(t => <option key={t}>{t}</option>)}
+              </select>
+            </label>
+            <label style={{ fontSize:8, color:T.muted }}>
+              DIFFICULTY
+              <select value={form.difficulty} onChange={set("difficulty")} style={inp}>
+                {DIFFICULTIES.map(d => <option key={d}>{d}</option>)}
+              </select>
+            </label>
+          </div>
+
+          <label style={{ display:"block", fontSize:8, color:T.muted, marginBottom:8 }}>
+            EXPECTED DURATION (min)
+            <input type="number" min="5" max="480" value={form.duration_min} onChange={set("duration_min")} style={inp}/>
+          </label>
+
+          <Btn color={T.g2} full disabled={saving || !form.name.trim()}>
+            {saving ? "⟳ SAVING..." : "💾 COMMIT SCENARIO"}
+          </Btn>
+        </form>
+      )}
+
+      {/* Confirm load dialog */}
+      {confirm && (
+        <div style={{
+          background:"rgba(196,30,58,0.08)", border:`1px solid ${T.red}44`,
+          borderRadius:3, padding:10, marginBottom:10,
+        }}>
+          <div style={{ fontSize:10, color:T.red, fontWeight:700, marginBottom:6 }}>
+            ⚠ LOADING WILL REPLACE CURRENT BATTLEFIELD
+          </div>
+          <div style={{ fontSize:9, color:T.muted, marginBottom:8 }}>
+            All current assets, zones, and alerts will be wiped and replaced with this scenario's state.
+          </div>
+          <div style={{ display:"flex", gap:5 }}>
+            <Btn onClick={() => handleLoad(confirm)} color={T.red} full small>⟳ LOAD SCENARIO</Btn>
+            <Btn onClick={() => setConfirm(null)} color={T.muted} small>CANCEL</Btn>
+          </div>
+        </div>
+      )}
+
+      {/* Scenario list */}
+      {scenarioLoading && (
+        <div style={{ textAlign:"center", padding:16, color:T.g2, fontSize:10, letterSpacing:1 }}>
+          ⟳ DEPLOYING SCENARIO...
+        </div>
+      )}
+
+      {scenarios.length === 0 && !saveOpen && (
+        <div style={{ textAlign:"center", padding:24, color:T.muted }}>
+          <div style={{ fontSize:22, marginBottom:8 }}>📋</div>
+          <div style={{ fontSize:10 }}>No scenarios saved</div>
+          <div style={{ fontSize:8, marginTop:4, color:T.textSub }}>
+            Save the current map state to create an exercise
+          </div>
+        </div>
+      )}
+
+      {scenarios.map(s => {
+        const dc = DIFF_COLOR[s.difficulty] ?? T.g2;
+        const tc = TYPE_COLOR[s.scenario_type] ?? T.g2;
+        const date = s.created_at ? new Date(s.created_at).toLocaleDateString("en-IN",{day:"2-digit",month:"short"}) : "";
+        return (
+          <div key={s.id} style={{
+            background:T.bg2, border:`1px solid ${T.dim}`,
+            borderLeft:`3px solid ${tc}`, borderRadius:3,
+            padding:"8px 10px", marginBottom:5,
+          }}>
+            <div style={{ display:"flex", justifyContent:"space-between", alignItems:"flex-start", marginBottom:4 }}>
+              <div style={{ flex:1, minWidth:0 }}>
+                <div style={{ fontSize:11, color:T.green, fontWeight:700, marginBottom:3,
+                  overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>{s.name}</div>
+                <div style={{ display:"flex", gap:3, flexWrap:"wrap" }}>
+                  <Badge text={s.scenario_type} color={tc}/>
+                  <Badge text={s.difficulty}    color={dc}/>
+                  <Badge text={`${s.duration_min}m`} color={T.muted}/>
+                </div>
+              </div>
+              <button onClick={() => onDelete(s.id)} style={{
+                background:`${T.red}12`, border:`1px solid ${T.red}33`, color:T.red,
+                borderRadius:3, width:20, height:20, fontSize:9, cursor:"pointer",
+                display:"flex", alignItems:"center", justifyContent:"center",
+                fontFamily:"inherit", flexShrink:0, marginLeft:6,
+              }}>✕</button>
+            </div>
+
+            {s.description && (
+              <div style={{ fontSize:8, color:T.textSub, marginBottom:5,
+                overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>{s.description}</div>
+            )}
+
+            <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center" }}>
+              <div style={{ fontSize:7, color:T.muted }}>
+                {s.asset_count ?? "?"} units · {s.zone_count ?? "?"} zones · {date}
+              </div>
+              <button onClick={() => setConfirm(s.id)} disabled={scenarioLoading} style={{
+                background:`${T.g2}12`, border:`1px solid ${T.g2}44`, color:T.g2,
+                borderRadius:3, padding:"3px 8px", fontSize:8, fontWeight:700,
+                cursor:scenarioLoading?"not-allowed":"pointer", fontFamily:"inherit", letterSpacing:0.5,
+              }}>⟳ LOAD</button>
+            </div>
+          </div>
+        );
+      })}
+    </>
+  );
+}
+
 // ── MAIN SIDEBAR ───────────────────────────────────────────────
 const TABS = [
-  { id:"ASSETS",   label:"ASSETS",  icon:"📡" },
-  { id:"ALERTS",   label:"ALERTS",  icon:"🚨" },
-  { id:"ZONES",    label:"ZONES",   icon:"🎯" },
-  { id:"CONVOY",   label:"CONVOY",  icon:"🚛" },
-  { id:"PATHFIND", label:"ROUTES",  icon:"🗺" },
-  { id:"SIMULATE", label:"SIM",     icon:"⚡" },
-  { id:"ARMORY",   label:"ARMORY",  icon:"🔫" },
+  { id:"ASSETS",    label:"ASSETS",    icon:"📡" },
+  { id:"ALERTS",    label:"ALERTS",    icon:"🚨" },
+  { id:"SCENARIOS", label:"SCENARIOS", icon:"📋" },
+  { id:"ZONES",     label:"ZONES",     icon:"🎯" },
+  { id:"CONVOY",    label:"CONVOY",    icon:"🚛" },
+  { id:"PATHFIND",  label:"ROUTES",    icon:"🗺" },
+  { id:"SIMULATE",  label:"SIM",       icon:"⚡" },
+  { id:"ARMORY",    label:"ARMORY",    icon:"🔫" },
 ];
 
 export default function Sidebar(props) {
   const {
     assets=[], zones=[], alerts=[], armory=[], convoys=[],
+    scenarios=[], scenarioLoading=false,
+    saveScenario, loadScenario, deleteScenario,
     pathResult, simResult, simLoading, pathLoading,
     connected, clearAlerts, addZone, removeZone,
     runPathfind, runSimulation, setPathResult, setSimResult,
@@ -754,9 +941,10 @@ export default function Sidebar(props) {
 
       {/* ── Content */}
       <div style={{ flex:1, overflowY:"auto", padding:10 }}>
-        {tab==="ASSETS"   && <AssetsTab assets={assets} selectedAssetId={selectedAssetId} onSelect={onSelectAsset} svcFilter={svcFilter} setSvcFilter={setSvcFilter} activeCmd={activeCmd}/>}
-        {tab==="ALERTS"   && <AlertsTab alerts={alerts} onClear={clearAlerts}/>}
-        {tab==="ZONES"    && <ZonesTab zones={zones} onAdd={addZone} onRemove={removeZone}/>}
+        {tab==="ASSETS"    && <AssetsTab assets={assets} selectedAssetId={selectedAssetId} onSelect={onSelectAsset} svcFilter={svcFilter} setSvcFilter={setSvcFilter} activeCmd={activeCmd}/>}
+        {tab==="ALERTS"    && <AlertsTab alerts={alerts} onClear={clearAlerts}/>}
+        {tab==="SCENARIOS" && <ScenariosTab assets={assets} zones={zones} scenarios={scenarios} scenarioLoading={scenarioLoading} onSave={saveScenario} onLoad={loadScenario} onDelete={deleteScenario} user={user}/>}
+        {tab==="ZONES"     && <ZonesTab zones={zones} onAdd={addZone} onRemove={removeZone}/>}
         {tab==="CONVOY"   && <ConvoyTab convoys={convoys} assets={assets} onAdd={addConvoy} onStatusChange={updateConvoyStatus} onDelete={deleteConvoy} onSelectConvoy={onSelectConvoy} selectedConvoyId={selectedConvoyId}/>}
         {tab==="PATHFIND" && <PathfindTab assets={assets} pathResult={pathResult} pathLoading={pathLoading} onRun={runPathfind} onClear={()=>setPathResult(null)} selectedAssetId={selectedAssetId}/>}
         {tab==="SIMULATE" && <SimulateTab assets={assets} simResult={simResult} simLoading={simLoading} onRun={runSimulation}/>}

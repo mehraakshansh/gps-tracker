@@ -39,6 +39,8 @@ export function useTracker() {
   const [tickMs,        setTickMs]        = useState(null);
   const [matchState,    setMatchState]    = useState(null);
   const [combatLog,     setCombatLog]     = useState([]);
+  const [scenarios,     setScenarios]     = useState([]);
+  const [scenarioLoading, setScenarioLoading] = useState(false);
   const tickRef  = useRef(null);
   const trailsRef = useRef(new Map());
 
@@ -98,6 +100,17 @@ export function useTracker() {
       setArmory(Array.isArray(data) ? data : []);
     } catch (e) {
       console.error("fetchArmory:", e);
+    }
+  }, []);
+
+  const fetchScenarios = useCallback(async () => {
+    try {
+      const res = await apiFetch("scenarios");
+      if (!res.ok) return;
+      const data = await res.json();
+      setScenarios(Array.isArray(data) ? data : []);
+    } catch (e) {
+      console.error("fetchScenarios:", e);
     }
   }, []);
 
@@ -331,6 +344,51 @@ export function useTracker() {
     return res.json();
   }, []);
 
+  // ── Scenario CRUD ─────────────────────────────────────────────────────────
+  const saveScenario = useCallback(async (meta, assetsSnapshot, zonesSnapshot) => {
+    const res = await apiFetch("scenarios", {
+      method: "POST",
+      body: JSON.stringify({
+        action: "save",
+        ...meta,
+        assets_snapshot: assetsSnapshot,
+        zones_snapshot:  zonesSnapshot,
+      }),
+    });
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({ error: res.statusText }));
+      throw new Error(err.error ?? `Save failed ${res.status}`);
+    }
+    const saved = await res.json();
+    setScenarios(prev => [saved, ...prev]);
+    return saved;
+  }, []);
+
+  const loadScenario = useCallback(async (scenarioId) => {
+    setScenarioLoading(true);
+    try {
+      const res = await apiFetch("scenarios", {
+        method: "POST",
+        body: JSON.stringify({ action: "load", scenario_id: scenarioId }),
+      });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({ error: res.statusText }));
+        throw new Error(err.error ?? `Load failed ${res.status}`);
+      }
+      const result = await res.json();
+      await Promise.all([fetchAssets(), fetchZones()]);
+      return result;
+    } finally {
+      setScenarioLoading(false);
+    }
+  }, [fetchAssets, fetchZones]);
+
+  const deleteScenario = useCallback(async (scenarioId) => {
+    const res = await apiFetch(`scenarios/${scenarioId}`, { method: "DELETE" });
+    if (!res.ok) throw new Error(`Delete failed: ${res.status}`);
+    setScenarios(prev => prev.filter(s => s.id !== scenarioId));
+  }, []);
+
   // ── Force re-seed assets ──────────────────────────────────────────────────
   const seedAssets = useCallback(async () => {
     await apiFetch("assets", { method:"POST", body:JSON.stringify({ action:"seed" }) });
@@ -341,7 +399,7 @@ export function useTracker() {
   useEffect(() => {
     (async () => {
       setLoading(true);
-      await Promise.all([fetchAssets(), fetchZones(), fetchAlerts(), fetchArmory(), fetchConvoys()]);
+      await Promise.all([fetchAssets(), fetchZones(), fetchAlerts(), fetchArmory(), fetchConvoys(), fetchScenarios()]);
       // Load match state and recent combat log
       const { data: ms } = await supabase.from("match_state").select("*").eq("id", 1).limit(1);
       if (ms?.[0]) setMatchState(ms[0]);
@@ -427,6 +485,8 @@ export function useTracker() {
     seedAssets,
     issueOrder,
     matchState, combatLog,
+    scenarios, scenarioLoading,
+    saveScenario, loadScenario, deleteScenario,
     refreshAssets: fetchAssets,
     refreshZones:  fetchZones,
   };
