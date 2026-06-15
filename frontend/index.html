@@ -19,6 +19,41 @@
 </head>
 <body>
   <div id="root"></div>
+
+  <!-- Pre-boot: catches JS errors before React mounts -->
+  <div id="preboot" style="position:fixed;inset:0;background:#020c04;display:flex;align-items:center;justify-content:center;font-family:'Courier New',monospace;color:#22c55e;z-index:99999;pointer-events:none;">
+    <div style="text-align:center">
+      <div style="font-size:32px;margin-bottom:12px">🛡️</div>
+      <div style="font-size:10px;letter-spacing:3px;opacity:0.5">LOADING BRCS...</div>
+    </div>
+  </div>
+
+  <script>
+    window.addEventListener('error', function(e) {
+      var el = document.getElementById('preboot');
+      if (!el) return;
+      el.style.pointerEvents = 'auto';
+      el.innerHTML = '<div style="color:#ef4444;text-align:center;padding:40px;max-width:640px">' +
+        '<div style="font-size:24px;margin-bottom:12px">⚠</div>' +
+        '<div style="font-size:11px;font-weight:700;letter-spacing:2px;margin-bottom:12px">JS LOAD ERROR</div>' +
+        '<div style="background:rgba(239,68,68,.08);border:1px solid #ef444433;border-radius:4px;padding:10px 16px;font-size:10px;line-height:1.8;word-break:break-all">' +
+        (e.message || 'Unknown error') + '<br/>' +
+        (e.filename ? e.filename.split('/').pop() + ':' + e.lineno : '') +
+        '</div></div>';
+    });
+    window.addEventListener('unhandledrejection', function(e) {
+      var el = document.getElementById('preboot');
+      if (!el) return;
+      el.style.pointerEvents = 'auto';
+      el.innerHTML = '<div style="color:#ef4444;text-align:center;padding:40px;max-width:640px">' +
+        '<div style="font-size:24px;margin-bottom:12px">⚠</div>' +
+        '<div style="font-size:11px;font-weight:700;letter-spacing:2px;margin-bottom:12px">ASYNC ERROR</div>' +
+        '<div style="background:rgba(239,68,68,.08);border:1px solid #ef444433;border-radius:4px;padding:10px 16px;font-size:10px;line-height:1.8;word-break:break-all">' +
+        (e.reason && e.reason.message ? e.reason.message : String(e.reason)) +
+        '</div></div>';
+    });
+  </script>
+
   <script type="module" src="/src/index.jsx"></script>
 </body>
 </html>

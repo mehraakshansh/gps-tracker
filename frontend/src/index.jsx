@@ -33,6 +33,10 @@ class ErrorBoundary extends React.Component {
   }
 }
 
+// Hide pre-boot overlay once React takes over
+const preboot = document.getElementById("preboot");
+if (preboot) preboot.remove();
+
 ReactDOM.createRoot(document.getElementById("root")).render(
   <ErrorBoundary><App /></ErrorBoundary>
 );
