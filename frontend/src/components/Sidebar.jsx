@@ -1,19 +1,19 @@
 import React, { useState, useMemo } from "react";
 import ConvoyTab from "./ConvoyTab";
 
-// ── Design tokens ──────────────────────────────────────────────
+// ── Fantasy Design tokens ──────────────────────────────────────
 const T = {
-  bg0:"#060910", bg1:"#080b14", bg2:"#0c1020", bg3:"#10152a",
-  green:"#00e5a0", g2:"#00e5a0", g3:"#00c48a",
-  red:"#ff3355", orange:"#f97316", yellow:"#fbbf24",
-  blue:"#38bdf8", purple:"#a78bfa",
-  muted:"#475569", dim:"rgba(255,255,255,0.08)", faint:"rgba(255,255,255,0.04)",
-  textSub:"#64748b",
+  bg0:"#08060c", bg1:"#0c0a10", bg2:"#100e18", bg3:"#141020",
+  green:"#d4a843", g2:"#d4a843", g3:"#b8922e",
+  red:"#c41e3a", orange:"#d47820", yellow:"#c9a84c",
+  blue:"#4a8aaa", purple:"#9b59d0",
+  muted:"#5a5040", dim:"rgba(212,168,67,0.07)", faint:"rgba(212,168,67,0.04)",
+  textSub:"#7a6a50",
 };
 
-const SEV  = { CRITICAL:"#ef4444", WARNING:"#f97316", INFO:"#22c55e", EMERGENCY:"#a855f7" };
-const SVC  = { ARMY:"#22c55e", AIR_FORCE:"#38bdf8", NAVY:"#0ea5e9", SPECIAL_FORCES:"#f59e0b", MARINES:"#ec4899" };
-const ZC   = { FOB:"#22c55e", HOSTILE:"#ef4444", RESTRICTED:"#f97316", CIVILIAN:"#60a5fa", MINEFIELD:"#dc2626", NO_FLY:"#e879f9", SUPPLY:"#34d399" };
+const SEV  = { CRITICAL:"#c41e3a", WARNING:"#d47820", INFO:"#d4a843", EMERGENCY:"#9b59d0" };
+const SVC  = { ARMY:"#d4a843", AIR_FORCE:"#7ecfea", NAVY:"#4a8aaa", SPECIAL_FORCES:"#9b59d0", MARINES:"#d47820" };
+const ZC   = { FOB:"#d4a843", HOSTILE:"#c41e3a", RESTRICTED:"#d47820", CIVILIAN:"#4a8aaa", MINEFIELD:"#8b1a1a", NO_FLY:"#9b59d0", SUPPLY:"#3a8a5a" };
 
 // Indian Armed Forces command hierarchy
 const COMMANDS = {
