@@ -1,4 +1,5 @@
 import React, { useState, useMemo } from "react";
+import ConvoyTab from "./ConvoyTab";
 
 // ── Design tokens ──────────────────────────────────────────────
 const T = {
@@ -669,6 +670,7 @@ const TABS = [
   { id:"ASSETS",   label:"ASSETS",  icon:"📡" },
   { id:"ALERTS",   label:"ALERTS",  icon:"🚨" },
   { id:"ZONES",    label:"ZONES",   icon:"🎯" },
+  { id:"CONVOY",   label:"CONVOY",  icon:"🚛" },
   { id:"PATHFIND", label:"ROUTES",  icon:"🗺" },
   { id:"SIMULATE", label:"SIM",     icon:"⚡" },
   { id:"ARMORY",   label:"ARMORY",  icon:"🔫" },
@@ -676,12 +678,15 @@ const TABS = [
 
 export default function Sidebar(props) {
   const {
-    assets=[], zones=[], alerts=[], armory=[],
+    assets=[], zones=[], alerts=[], armory=[], convoys=[],
     pathResult, simResult, simLoading, pathLoading,
     connected, clearAlerts, addZone, removeZone,
     runPathfind, runSimulation, setPathResult, setSimResult,
+    addConvoy, updateConvoyStatus, deleteConvoy,
     selectedAssetId, onSelectAsset,
+    selectedConvoyId, onSelectConvoy,
     activeCmd, onCmdChange, activeSector, onSectorChange,
+    onSignOut, user,
   } = props;
 
   const [tab,       setTab]       = useState("ASSETS");
@@ -747,6 +752,7 @@ export default function Sidebar(props) {
         {tab==="ASSETS"   && <AssetsTab assets={assets} selectedAssetId={selectedAssetId} onSelect={onSelectAsset} svcFilter={svcFilter} setSvcFilter={setSvcFilter} activeCmd={activeCmd}/>}
         {tab==="ALERTS"   && <AlertsTab alerts={alerts} onClear={clearAlerts}/>}
         {tab==="ZONES"    && <ZonesTab zones={zones} onAdd={addZone} onRemove={removeZone}/>}
+        {tab==="CONVOY"   && <ConvoyTab convoys={convoys} assets={assets} onAdd={addConvoy} onStatusChange={updateConvoyStatus} onDelete={deleteConvoy} onSelectConvoy={onSelectConvoy} selectedConvoyId={selectedConvoyId}/>}
         {tab==="PATHFIND" && <PathfindTab assets={assets} pathResult={pathResult} pathLoading={pathLoading} onRun={runPathfind} onClear={()=>setPathResult(null)} selectedAssetId={selectedAssetId}/>}
         {tab==="SIMULATE" && <SimulateTab assets={assets} simResult={simResult} simLoading={simLoading} onRun={runSimulation}/>}
         {tab==="ARMORY"   && <ArmoryTab armory={armory}/>}
@@ -758,7 +764,10 @@ export default function Sidebar(props) {
         display:"flex", justifyContent:"space-between", alignItems:"center",
         background:T.bg0, flexShrink:0,
       }}>
-        <span style={{ fontSize:7,color:T.textSub,letterSpacing:1 }}>AKSHANSH MEHRA · BRCS v4.0</span>
+        <span style={{ fontSize:7,color:T.textSub,letterSpacing:1,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",maxWidth:140 }} title={user?.email}>
+          {user?.email || "BRCS v4.0"}
+        </span>
+        {onSignOut && <button onClick={onSignOut} title="Sign out" style={{ background:"transparent",border:`1px solid ${T.dim}`,color:T.muted,cursor:"pointer",borderRadius:2,padding:"1px 6px",fontSize:7,fontFamily:"inherit",letterSpacing:1 }}>LOGOUT</button>}
         <div style={{ display:"flex",alignItems:"center",gap:4 }}>
           <div style={{ width:5,height:5,borderRadius:"50%",
             background:connected?T.g2:T.red,

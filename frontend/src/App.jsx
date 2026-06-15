@@ -1,7 +1,9 @@
-import React, { useState, useCallback } from "react";
+import React, { useState, useCallback, useRef, useEffect as _ue } from "react";
 import MapView from "./components/MapView";
 import Sidebar from "./components/Sidebar";
+import AuthScreen from "./components/AuthScreen";
 import { useTracker } from "./hooks/useTracker";
+import { useAuth } from "./hooks/useAuth";
 
 const SEV_COLOR = { CRITICAL:"#ef4444", WARNING:"#f97316", INFO:"#22c55e", EMERGENCY:"#a855f7" };
 const SVC_ICON  = { ARMY:"⚔️", AIR_FORCE:"✈️", NAVY:"⚓", SPECIAL_FORCES:"🪖" };
@@ -16,21 +18,111 @@ const SECTOR_LABELS = {
   SFC:"SF CMD",
 };
 
-export default function App() {
-  const tracker      = useTracker();
-  const [selectedAsset, setSelectedAsset] = useState(null);
-  const [clock,         setClock]         = useState(new Date());
-  const [activeCmd,     setActiveCmd]     = useState("ALL");
-  const [activeSector,  setActiveSector]  = useState("ALL");
+// ── Command Console ─────────────────────────────────────────────────────────
+function CommandConsole({ onExec }) {
+  const [open, setOpen]     = useState(false);
+  const [input, setInput]   = useState("");
+  const [hist, setHist]     = useState([{ ok:true, text:"BRCS COMMAND INTERFACE v4.0 — TYPE help FOR COMMANDS", ts:"" }]);
+  const [cmdHist, setCmdHist] = useState([]);
+  const [cmdIdx,  setCmdIdx]  = useState(-1);
+  const inputRef = useRef(null);
+  const scrollRef = useRef(null);
 
-  React.useEffect(() => {
+  _ue(() => { if (open) setTimeout(()=>inputRef.current?.focus(), 50); }, [open]);
+  _ue(() => { if (scrollRef.current) scrollRef.current.scrollTop = scrollRef.current.scrollHeight; }, [hist]);
+
+  const submit = async e => {
+    e.preventDefault();
+    if (!input.trim()) return;
+    const cmd = input.trim();
+    const ts = new Date().toLocaleTimeString("en-IN",{hour12:false});
+    setHist(h=>[...h,{ok:true,text:`> ${cmd}`,ts,dim:true}]);
+    setCmdHist(p=>[cmd,...p.slice(0,29)]);
+    setCmdIdx(-1); setInput("");
+    const result = await onExec(cmd);
+    if (result.msg==="__CLEAR__") { setHist([{ok:true,text:"Console cleared.",ts}]); return; }
+    setHist(h=>[...h,{ok:result.ok,text:result.msg,ts}]);
+  };
+
+  const handleKey = e => {
+    if (e.key==="ArrowUp"){e.preventDefault();const ni=Math.min(cmdIdx+1,cmdHist.length-1);setCmdIdx(ni);setInput(cmdHist[ni]??"");}
+    if (e.key==="ArrowDown"){e.preventDefault();const ni=Math.max(cmdIdx-1,-1);setCmdIdx(ni);setInput(ni===-1?"":cmdHist[ni]);}
+    if (e.key==="Escape") setOpen(false);
+  };
+
+  return (
+    <>
+      <button onClick={()=>setOpen(o=>!o)} style={{
+        position:"absolute",bottom:open?216:14,right:14,zIndex:600,
+        background:"rgba(1,10,3,.92)",border:`1px solid ${open?"#ef444433":"#162916"}`,
+        color:open?"#ef4444":"#22c55e",borderRadius:3,padding:"4px 12px",
+        fontSize:9,fontWeight:700,cursor:"pointer",fontFamily:"'Courier New',monospace",
+        letterSpacing:1.5,transition:"bottom .2s",
+      }}>{open?"✕ CLOSE":"▶ COMMAND CONSOLE"}</button>
+
+      {open && (
+        <div style={{
+          position:"absolute",bottom:0,left:0,right:0,zIndex:590,
+          height:210,background:"rgba(0,8,2,.97)",borderTop:"1px solid #22c55e22",
+          display:"flex",flexDirection:"column",fontFamily:"'Courier New',monospace",
+        }}>
+          <div style={{height:22,flexShrink:0,background:"#050e05",borderBottom:"1px solid #0d1e0d",padding:"0 12px",display:"flex",alignItems:"center",justifyContent:"space-between"}}>
+            <span style={{fontSize:8,color:"#3d7a3d",letterSpacing:2,fontWeight:700}}>◈ BRCS TACTICAL CONSOLE</span>
+            <span style={{fontSize:7,color:"#1a4a1a"}}>↑↓ history · ESC close</span>
+          </div>
+          <div ref={scrollRef} style={{flex:1,overflowY:"auto",padding:"6px 12px"}}>
+            {hist.map((h,i)=>(
+              <div key={i} style={{fontSize:10,lineHeight:1.6,color:h.dim?"#2d5a2d":h.ok?"#4ade80":"#ef4444",display:"flex",gap:8}}>
+                {h.ts&&<span style={{color:"#1a3a1a",flexShrink:0}}>[{h.ts}]</span>}
+                <span>{h.text}</span>
+              </div>
+            ))}
+          </div>
+          <form onSubmit={submit} style={{display:"flex",alignItems:"center",gap:8,padding:"6px 12px",borderTop:"1px solid #0d1e0d",flexShrink:0}}>
+            <span style={{fontSize:11,color:"#22c55e",flexShrink:0}}>BRCS›</span>
+            <input ref={inputRef} value={input} onChange={e=>setInput(e.target.value)} onKeyDown={handleKey}
+              placeholder="type a command..." style={{flex:1,background:"transparent",border:"none",outline:"none",color:"#4ade80",fontSize:11,fontFamily:"'Courier New',monospace",caretColor:"#22c55e"}}/>
+            <button type="submit" style={{background:"transparent",border:"1px solid #162916",color:"#22c55e",borderRadius:2,padding:"2px 8px",fontSize:8,cursor:"pointer",fontFamily:"inherit",letterSpacing:1}}>EXEC</button>
+          </form>
+        </div>
+      )}
+    </>
+  );
+}
+
+export default function App() {
+  const auth    = useAuth();
+  const tracker = useTracker();
+  const [selectedAsset,  setSelectedAsset]  = useState(null);
+  const [selectedConvoy, setSelectedConvoy] = useState(null);
+  const [clock,          setClock]          = useState(new Date());
+  const [activeCmd,      setActiveCmd]      = useState("ALL");
+  const [activeSector,   setActiveSector]   = useState("ALL");
+
+  _ue(() => {
     const t = setInterval(() => setClock(new Date()), 1000);
     return () => clearInterval(t);
   }, []);
 
+  if (auth.loading) {
+    return (
+      <div style={{position:"fixed",inset:0,background:"#000d02",display:"flex",alignItems:"center",justifyContent:"center",fontFamily:"'Courier New',monospace",color:"#22c55e"}}>
+        <div style={{textAlign:"center"}}>
+          <div style={{fontSize:32,marginBottom:16,filter:"drop-shadow(0 0 20px #22c55e)"}}>🛡️</div>
+          <div style={{fontSize:10,letterSpacing:3,animation:"statusPulse 1s infinite"}}>AUTHENTICATING...</div>
+        </div>
+        <style>{`@keyframes statusPulse{0%,100%{opacity:1}50%{opacity:.2}}`}</style>
+      </div>
+    );
+  }
+
+  if (!auth.session) {
+    return <AuthScreen onSignIn={auth.signIn} onSignUp={auth.signUp} authError={auth.authError}/>;
+  }
+
   const handleCmdChange = useCallback((cmd) => {
     setActiveCmd(cmd);
-    setActiveSector(cmd); // Mirror to MapView for pan-to
+    setActiveSector(cmd);
   }, []);
 
   const pad = n => String(n).padStart(2,"0");
@@ -146,10 +238,14 @@ export default function App() {
           {...tracker}
           selectedAssetId={selectedAsset}
           onSelectAsset={setSelectedAsset}
+          selectedConvoyId={selectedConvoy}
+          onSelectConvoy={setSelectedConvoy}
           activeCmd={activeCmd}
           onCmdChange={handleCmdChange}
           activeSector={activeSector}
           onSectorChange={setActiveSector}
+          onSignOut={auth.signOut}
+          user={auth.user}
         />
 
         <div style={{ flex:1, position:"relative", display:"flex", flexDirection:"column" }}>
@@ -159,6 +255,8 @@ export default function App() {
             pathResult={tracker.pathResult}
             simResult={tracker.simResult}
             simObjective={tracker.simObjective}
+            convoys={tracker.convoys}
+            selectedConvoyId={selectedConvoy}
             selectedAssetId={selectedAsset}
             onAssetClick={setSelectedAsset}
             activeSector={activeSector}
@@ -235,34 +333,35 @@ export default function App() {
           {tracker.pathResult && (
             <div style={{
               position:"absolute", bottom:14, right:14, zIndex:500,
-              background:"rgba(1,10,3,.96)", border:"1px solid #facc1544",
+              background:"rgba(1,10,3,.97)", border:"1px solid #facc1533",
               borderRadius:4, padding:"10px 14px",
-              backdropFilter:"blur(8px)", minWidth:175,
-              boxShadow:"0 0 16px #facc1522",
+              backdropFilter:"blur(8px)", minWidth:170,
             }}>
-              <div style={{ fontSize:8, fontWeight:700, color:"#facc15", letterSpacing:2, marginBottom:6 }}>
+              <div style={{ fontSize:7.5, fontWeight:700, color:"#facc15", letterSpacing:2, marginBottom:6 }}>
                 PATH · {tracker.pathResult.algo ?? tracker.pathResult.algorithm}
               </div>
               {[
-                ["DISTANCE", `${tracker.pathResult.distance_km?.toFixed(2)} km`],
+                ["DISTANCE",  `${tracker.pathResult.distance_km?.toFixed(2)} km`],
                 ["WAYPOINTS", tracker.pathResult.waypoints?.length],
                 ["NODES",     tracker.pathResult.nodes_visited],
                 ["COMPUTE",   `${tracker.pathResult.compute_ms?.toFixed(1)} ms`],
-                ["GRID",      `${tracker.pathResult.grid_size}×${tracker.pathResult.grid_size}`],
               ].map(([k,v])=>(
                 <div key={k} style={{ display:"flex", justifyContent:"space-between", fontSize:9, marginBottom:2 }}>
-                  <span style={{ color:"#3d5a3d" }}>{k}</span>
+                  <span style={{ color:"#2d5a2d" }}>{k}</span>
                   <span style={{ color:"#facc15", fontWeight:700 }}>{v}</span>
                 </div>
               ))}
               <button onClick={()=>tracker.setPathResult(null)} style={{
                 marginTop:6, width:"100%", background:"transparent",
-                border:"1px solid #162916", color:"#2d4a2d",
-                borderRadius:2, padding:"3px", fontSize:8,
+                border:"1px solid #162916", color:"#1a3a1a",
+                borderRadius:2, padding:"3px", fontSize:7.5,
                 cursor:"pointer", fontFamily:"inherit",
               }}>CLEAR PATH</button>
             </div>
           )}
+
+          {/* ── Command Console ─────────────────────────────── */}
+          <CommandConsole onExec={tracker.executeCommand}/>
         </div>
       </div>
 

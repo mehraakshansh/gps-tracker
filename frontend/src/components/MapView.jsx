@@ -186,15 +186,16 @@ const SECTORS = [
   { id:"SIACHEN",   lat:35.40, lon:76.90, zoom:9,  label:"Siachen Glacier" },
 ];
 
-export default function MapView({ assets, zones, pathResult, simResult, simObjective, selectedAssetId, onAssetClick, activeSector }) {
-  const divRef       = useRef(null);
-  const mapRef       = useRef(null);
-  const markersRef   = useRef({});
-  const trailsRef    = useRef({});
-  const zoneLayRef   = useRef({});
-  const pathLayRef   = useRef(null);
-  const pathMksRef   = useRef([]);
-  const simLayersRef = useRef([]);
+export default function MapView({ assets, zones, pathResult, simResult, simObjective, convoys, selectedConvoyId, selectedAssetId, onAssetClick, activeSector }) {
+  const divRef         = useRef(null);
+  const mapRef         = useRef(null);
+  const markersRef     = useRef({});
+  const trailsRef      = useRef({});
+  const zoneLayRef     = useRef({});
+  const pathLayRef     = useRef(null);
+  const pathMksRef     = useRef([]);
+  const simLayersRef   = useRef([]);
+  const convoyLayRef   = useRef({});
 
   // Init map
   useEffect(() => {
@@ -320,6 +321,54 @@ export default function MapView({ assets, zones, pathResult, simResult, simObjec
     pathMksRef.current.push(ep(lls[lls.length - 1], "#ef4444", "E"));
     m.fitBounds(L.polyline(lls).getBounds(), { padding:[40,40] });
   }, [pathResult]);
+
+  // Convoy overlays
+  useEffect(() => {
+    const m = mapRef.current; if (!m) return;
+    // Clear old convoy layers
+    Object.values(convoyLayRef.current).forEach(layers => layers.forEach(l => { try { m.removeLayer(l); } catch(_){} }));
+    convoyLayRef.current = {};
+    (convoys || []).forEach(cv => {
+      const wps = Array.isArray(cv.route_waypoints) ? cv.route_waypoints : [];
+      if (wps.length < 2) return;
+      const isSelected = cv.id === selectedConvoyId;
+      const statusColor = {
+        PLANNED:"#38bdf8", EN_ROUTE:"#22c55e", COMPLETED:"#4ade80",
+        COMPROMISED:"#ef4444", CANCELLED:"#6b7280", HALTED:"#f97316",
+      }[cv.status] || "#38bdf8";
+      const lls = wps.map(w => [parseFloat(w.lat), parseFloat(w.lon)]).filter(ll => !isNaN(ll[0]));
+      if (lls.length < 2) return;
+      const layers = [];
+      // Route line
+      layers.push(L.polyline(lls, {
+        color: statusColor, weight: isSelected ? 3 : 1.5,
+        dashArray: cv.status === "EN_ROUTE" ? "8,4" : "4,6",
+        opacity: isSelected ? 1 : 0.55,
+      }).addTo(m));
+      // Waypoint markers
+      lls.forEach((ll, i) => {
+        const ic = L.divIcon({
+          className: "",
+          html: `<div style="width:8px;height:8px;border-radius:50%;background:${statusColor};
+            border:1px solid ${isSelected?"#fff":statusColor};
+            box-shadow:0 0 ${isSelected?8:3}px ${statusColor};"></div>`,
+          iconSize:[8,8], iconAnchor:[4,4],
+        });
+        layers.push(L.marker(ll, { icon: ic, interactive: false }).addTo(m));
+      });
+      // Label at midpoint
+      const mid = lls[Math.floor(lls.length / 2)];
+      const labelIc = L.divIcon({
+        className: "",
+        html: `<div style="background:rgba(1,10,3,.9);border:1px solid ${statusColor};border-radius:2px;
+          padding:2px 6px;font-family:'Courier New',monospace;font-size:8px;font-weight:700;
+          color:${statusColor};letter-spacing:0.5px;white-space:nowrap;">🚛 ${cv.name}</div>`,
+        iconAnchor:[40,8],
+      });
+      layers.push(L.marker(mid, { icon: labelIc, interactive: false }).addTo(m));
+      convoyLayRef.current[cv.id] = layers;
+    });
+  }, [convoys, selectedConvoyId]);
 
   // Simulation overlay
   useEffect(() => {

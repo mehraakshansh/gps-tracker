@@ -1,16 +1,19 @@
 import { useState, useEffect, useCallback, useRef } from "react";
+import { supabase } from "../lib/supabase";
 
 const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL ?? "";
 const ANON_KEY     = import.meta.env.VITE_SUPABASE_ANON_KEY ?? "";
 const FN           = `${SUPABASE_URL}/functions/v1`;
 
-function apiFetch(path, options = {}) {
+async function apiFetch(path, options = {}) {
+  const { data: { session } } = await supabase.auth.getSession();
+  const token = session?.access_token ?? ANON_KEY;
   return fetch(`${FN}/${path}`, {
     ...options,
     headers: {
       "Content-Type": "application/json",
       apikey: ANON_KEY,
-      Authorization: `Bearer ${ANON_KEY}`,
+      Authorization: `Bearer ${token}`,
       ...(options.headers ?? {}),
     },
   });
@@ -19,21 +22,22 @@ function apiFetch(path, options = {}) {
 const TRAIL_MAX = 20; // positions to keep per asset
 
 export function useTracker() {
-  const [assets,      setAssets]      = useState([]);
-  const [zones,       setZones]       = useState([]);
-  const [alerts,      setAlerts]      = useState([]);
-  const [armory,      setArmory]      = useState([]);
-  const [pathResult,   setPathResult]  = useState(null);
-  const [simResult,    setSimResult]   = useState(null);
-  const [simObjective, setSimObjective] = useState(null);
-  const [pathLoading, setPathLoading] = useState(false);
-  const [simLoading,  setSimLoading]  = useState(false);
-  const [loading,     setLoading]     = useState(true);
-  const [error,       setError]       = useState(null);
-  const [connected,   setConnected]   = useState(false);
-  const [tickMs,      setTickMs]      = useState(null);
+  const [assets,        setAssets]        = useState([]);
+  const [zones,         setZones]         = useState([]);
+  const [alerts,        setAlerts]        = useState([]);
+  const [armory,        setArmory]        = useState([]);
+  const [convoys,       setConvoys]       = useState([]);
+  const [pathResult,    setPathResult]    = useState(null);
+  const [simResult,     setSimResult]     = useState(null);
+  const [simObjective,  setSimObjective]  = useState(null);
+  const [pathLoading,   setPathLoading]   = useState(false);
+  const [simLoading,    setSimLoading]    = useState(false);
+  const [loading,       setLoading]       = useState(true);
+  const [error,         setError]         = useState(null);
+  const [connected,     setConnected]     = useState(false);
+  const [tickMs,        setTickMs]        = useState(null);
   const tickRef  = useRef(null);
-  const trailsRef = useRef(new Map()); // Map<assetId, {lat,lng}[]>
+  const trailsRef = useRef(new Map());
 
   // ── Fetchers ──────────────────────────────────────────────────────────────
   const fetchAssets = useCallback(async () => {
@@ -91,6 +95,17 @@ export function useTracker() {
       setArmory(Array.isArray(data) ? data : []);
     } catch (e) {
       console.error("fetchArmory:", e);
+    }
+  }, []);
+
+  const fetchConvoys = useCallback(async () => {
+    try {
+      const res = await apiFetch("convoys");
+      if (!res.ok) return;
+      const data = await res.json();
+      setConvoys(Array.isArray(data) ? data : []);
+    } catch (e) {
+      console.error("fetchConvoys:", e);
     }
   }, []);
 
@@ -205,9 +220,98 @@ export function useTracker() {
     }
   }, []);
 
+  // ── Convoy CRUD ───────────────────────────────────────────────────────────
+  const addConvoy = useCallback(async (payload) => {
+    const res = await apiFetch("convoys", { method:"POST", body:JSON.stringify(payload) });
+    if (!res.ok) {
+      const err = await res.json().catch(()=>({ error:res.statusText }));
+      throw new Error(err.error ?? `Server error ${res.status}`);
+    }
+    const created = await res.json();
+    setConvoys(prev => [created, ...prev]);
+    return created;
+  }, []);
+
+  const updateConvoyStatus = useCallback(async (convoyId, status) => {
+    const res = await apiFetch(`convoys/${convoyId}`, { method:"PUT", body:JSON.stringify({ status }) });
+    if (!res.ok) throw new Error(`Update failed: ${res.status}`);
+    const updated = await res.json();
+    setConvoys(prev => prev.map(c => c.id === convoyId ? updated : c));
+    return updated;
+  }, []);
+
+  const deleteConvoy = useCallback(async (convoyId) => {
+    const res = await apiFetch(`convoys/${convoyId}`, { method:"DELETE" });
+    if (!res.ok) throw new Error(`Delete failed: ${res.status}`);
+    setConvoys(prev => prev.filter(c => c.id !== convoyId));
+  }, []);
+
+  // ── Command console ───────────────────────────────────────────────────────
+  const assetsRef = useRef([]);
+  assetsRef.current = assets;
+  const alertsRef = useRef([]);
+  alertsRef.current = alerts;
+  const convoysRef = useRef([]);
+  convoysRef.current = convoys;
+
+  const executeCommand = useCallback(async (cmd) => {
+    const parts = cmd.trim().split(/\s+/);
+    const verb = (parts[0] ?? "").toUpperCase();
+
+    if (verb === "HALT" && parts[1]) {
+      const cs = parts[1].toUpperCase();
+      const a = assetsRef.current.find(x => x.callsign?.toUpperCase() === cs);
+      if (!a) return { ok:false, msg:`Asset ${cs} not found` };
+      setAssets(prev => prev.map(x => x.id === a.id ? {...x, status:"HALTED"} : x));
+      return { ok:true, msg:`✓ HALT order issued to ${cs}` };
+    }
+    if (verb === "ENGAGE" && parts[1]) {
+      const cs = parts[1].toUpperCase();
+      const a = assetsRef.current.find(x => x.callsign?.toUpperCase() === cs);
+      if (!a) return { ok:false, msg:`Asset ${cs} not found` };
+      setAssets(prev => prev.map(x => x.id === a.id ? {...x, status:"ENGAGED"} : x));
+      return { ok:true, msg:`✓ ${cs} set to ENGAGED` };
+    }
+    if (verb === "ACTIVE" && parts[1]) {
+      const cs = parts[1].toUpperCase();
+      const a = assetsRef.current.find(x => x.callsign?.toUpperCase() === cs);
+      if (!a) return { ok:false, msg:`Asset ${cs} not found` };
+      setAssets(prev => prev.map(x => x.id === a.id ? {...x, status:"ACTIVE"} : x));
+      return { ok:true, msg:`✓ ${cs} set to ACTIVE` };
+    }
+    if (verb === "STATUS" && parts[1]) {
+      const cs = parts[1].toUpperCase();
+      const a = assetsRef.current.find(x => x.callsign?.toUpperCase() === cs);
+      if (!a) return { ok:false, msg:`Asset ${cs} not found` };
+      return { ok:true, msg:`${a.callsign} | ${a.status} | spd:${a.current_speed?.toFixed(0)} | hdg:${a.current_heading?.toFixed(0)}° | fuel:${a.fuel_pct?.toFixed(0)}% | ammo:${a.ammo_pct?.toFixed(0)}%` };
+    }
+    if (verb === "LIST") {
+      const all = assetsRef.current;
+      return { ok:true, msg:`${all.length} assets: ${all.slice(0,8).map(a=>a.callsign).join(", ")}${all.length>8?` +${all.length-8} more`:""}` };
+    }
+    if (verb === "ALERTS") {
+      const al = alertsRef.current;
+      return { ok:true, msg:`${al.length} alerts (${al.filter(a=>a.severity==="CRITICAL").length} critical)` };
+    }
+    if (verb === "CONVOYS") {
+      const cv = convoysRef.current;
+      return { ok:true, msg:cv.length ? cv.map(c=>`${c.name}[${c.status}]`).join("  ") : "No convoys" };
+    }
+    if (verb === "SEED") {
+      await apiFetch("assets", { method:"POST", body:JSON.stringify({ action:"seed" }) });
+      await fetchAssets();
+      return { ok:true, msg:"Asset database re-seeded" };
+    }
+    if (verb === "CLEAR") return { ok:true, msg:"__CLEAR__" };
+    if (verb === "HELP") {
+      return { ok:true, msg:"HALT|ENGAGE|ACTIVE <callsign>  STATUS <callsign>  LIST  ALERTS  CONVOYS  SEED  CLEAR  HELP" };
+    }
+    return { ok:false, msg:`Unknown: ${verb} — type HELP` };
+  }, [fetchAssets]);
+
   // ── Force re-seed assets ──────────────────────────────────────────────────
   const seedAssets = useCallback(async () => {
-    await apiFetch("assets", { method: "POST", body: JSON.stringify({ action: "seed" }) });
+    await apiFetch("assets", { method:"POST", body:JSON.stringify({ action:"seed" }) });
     await fetchAssets();
   }, [fetchAssets]);
 
@@ -215,7 +319,7 @@ export function useTracker() {
   useEffect(() => {
     (async () => {
       setLoading(true);
-      await Promise.all([fetchAssets(), fetchZones(), fetchAlerts(), fetchArmory()]);
+      await Promise.all([fetchAssets(), fetchZones(), fetchAlerts(), fetchArmory(), fetchConvoys()]);
       setLoading(false);
       setConnected(true);
     })();
@@ -227,36 +331,22 @@ export function useTracker() {
     return () => clearInterval(tickRef.current);
   }, [tick]);
 
+  // ── Convoy refresh every 10 s ─────────────────────────────────────────────
+  useEffect(() => {
+    const iv = setInterval(fetchConvoys, 10000);
+    return () => clearInterval(iv);
+  }, [fetchConvoys]);
+
   return {
-    // data
-    assets,
-    zones,
-    alerts,
-    armory,
-    // status
-    loading,
-    error,
-    connected,
-    tickMs,
-    // path
-    pathResult,
-    setPathResult,
-    pathLoading,
-    // sim
-    simResult,
-    setSimResult,
-    simObjective,
-    setSimObjective,
-    simLoading,
-    // zone actions
-    addZone,
-    removeZone,
-    // alert actions
+    assets, zones, alerts, armory, convoys,
+    loading, error, connected, tickMs,
+    pathResult, setPathResult, pathLoading,
+    simResult, setSimResult, simObjective, setSimObjective, simLoading,
+    addZone, removeZone,
     clearAlerts,
-    // operation actions
-    runPathfind,
-    runSimulation,
-    // misc
+    runPathfind, runSimulation,
+    addConvoy, updateConvoyStatus, deleteConvoy,
+    executeCommand,
     seedAssets,
     refreshAssets: fetchAssets,
     refreshZones:  fetchZones,
