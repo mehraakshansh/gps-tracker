@@ -46,7 +46,7 @@ function TypedLine({ text, delay = 0, color = T.text, size = 10 }) {
   return <div style={{ fontSize: size, color, fontFamily: "'Courier New',monospace", lineHeight: 1.6 }}>{shown}<span style={{ animation: "blink 0.7s step-end infinite", opacity: shown.length < text.length ? 1 : 0 }}>█</span></div>;
 }
 
-export default function AuthScreen({ onSignIn, onSignUp, authError }) {
+export default function AuthScreen({ onSignIn, onSignUp, onOAuth, authError }) {
   const [mode,     setMode]     = useState("LOGIN"); // LOGIN | REGISTER
   const [email,    setEmail]    = useState("");
   const [password, setPassword] = useState("");
@@ -181,6 +181,36 @@ export default function AuthScreen({ onSignIn, onSignUp, authError }) {
               {busy ? "⟳ AUTHENTICATING..." : mode === "LOGIN" ? "▶ AUTHENTICATE" : "▶ REQUEST ACCESS"}
             </button>
           </form>
+
+          {/* OAuth buttons */}
+          <div style={{ padding:"0 20px 16px" }}>
+            <div style={{ display:"flex", alignItems:"center", gap:8, marginBottom:12 }}>
+              <div style={{ flex:1, height:1, background:T.dim }}/>
+              <span style={{ fontSize:7, color:T.muted, letterSpacing:2 }}>OR AUTHENTICATE VIA</span>
+              <div style={{ flex:1, height:1, background:T.dim }}/>
+            </div>
+            <div style={{ display:"flex", gap:8 }}>
+              {[
+                { provider:"github", label:"GITHUB", icon:"⬡" },
+                { provider:"google", label:"GOOGLE", icon:"◈" },
+              ].map(({ provider, label, icon }) => (
+                <button key={provider} onClick={() => onOAuth(provider)} style={{
+                  flex:1, background:"rgba(0,20,8,.6)",
+                  border:`1px solid ${T.muted}`, borderRadius:3,
+                  padding:"9px", fontSize:9, fontWeight:700,
+                  cursor:"pointer", fontFamily:"inherit",
+                  color:T.text, letterSpacing:2,
+                  display:"flex", alignItems:"center", justifyContent:"center", gap:6,
+                  transition:"border-color .2s",
+                }}
+                onMouseEnter={e => e.currentTarget.style.borderColor = T.green}
+                onMouseLeave={e => e.currentTarget.style.borderColor = T.muted}
+                >
+                  <span>{icon}</span>{label}
+                </button>
+              ))}
+            </div>
+          </div>
 
           {/* Warning footer */}
           <div style={{ background:"rgba(0,8,2,.6)", borderTop:`1px solid ${T.dim}`, padding:"8px 16px" }}>

@@ -23,6 +23,15 @@ export function useAuth() {
     return () => sub.subscription.unsubscribe();
   }, []);
 
+  const signInWithOAuth = useCallback(async (provider) => {
+    setAuthError(null);
+    const { error } = await supabase.auth.signInWithOAuth({
+      provider,
+      options: { redirectTo: window.location.origin },
+    });
+    if (error) setAuthError(error.message);
+  }, []);
+
   const signIn = useCallback(async (email, password) => {
     setAuthError(null);
     const { data, error } = await supabase.auth.signInWithPassword({ email, password });
@@ -50,5 +59,5 @@ export function useAuth() {
     setUser(null);
   }, []);
 
-  return { session, user, loading, authError, signIn, signUp, signOut };
+  return { session, user, loading, authError, signIn, signUp, signOut, signInWithOAuth };
 }

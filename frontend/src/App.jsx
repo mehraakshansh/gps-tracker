@@ -117,7 +117,7 @@ export default function App() {
   }
 
   if (!auth.session) {
-    return <AuthScreen onSignIn={auth.signIn} onSignUp={auth.signUp} authError={auth.authError}/>;
+    return <AuthScreen onSignIn={auth.signIn} onSignUp={auth.signUp} onOAuth={auth.signInWithOAuth} authError={auth.authError}/>;
   }
 
   const handleCmdChange = useCallback((cmd) => {
