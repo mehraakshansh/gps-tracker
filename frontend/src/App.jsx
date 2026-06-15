@@ -5,91 +5,463 @@ import AuthScreen from "./components/AuthScreen";
 import { useTracker } from "./hooks/useTracker";
 import { useAuth } from "./hooks/useAuth";
 
-const SEV_COLOR = { CRITICAL:"#ef4444", WARNING:"#f97316", INFO:"#22c55e", EMERGENCY:"#a855f7" };
-const SVC_ICON  = { ARMY:"⚔️", AIR_FORCE:"✈️", NAVY:"⚓", SPECIAL_FORCES:"🪖" };
-const SVC_COLOR = { ARMY:"#22c55e", AIR_FORCE:"#38bdf8", NAVY:"#0ea5e9", SPECIAL_FORCES:"#f59e0b" };
-
-const SECTOR_LABELS = {
-  ALL:"ALL INDIA",
-  WESTERN:"WESTERN CMD", SW:"SW CMD", NORTHERN:"NORTHERN CMD",
-  EASTERN:"EASTERN CMD", SOUTHERN:"SOUTHERN CMD", CENTRAL:"CENTRAL CMD",
-  WAC:"W. AIR CMD", SWAC:"SW AIR CMD", CAC:"C. AIR CMD", EAC:"E. AIR CMD", SAC:"S. AIR CMD",
-  WNC:"W. NAVAL", ENC:"E. NAVAL", SNC:"S. NAVAL",
-  SFC:"SF CMD",
+// ── Design tokens ─────────────────────────────────────────────────────────────
+const C = {
+  bg:     "#060910",
+  panel:  "rgba(6,9,16,0.97)",
+  bravo:  "#00e5a0",
+  alpha:  "#ff3355",
+  gold:   "#fbbf24",
+  purple: "#a78bfa",
+  text:   "#e2e8f0",
+  sub:    "#94a3b8",
+  muted:  "#475569",
+  dim:    "rgba(255,255,255,0.06)",
+  border: "rgba(255,255,255,0.09)",
 };
 
-// ── Command Console ─────────────────────────────────────────────────────────
-function CommandConsole({ onExec }) {
-  const [open, setOpen]     = useState(false);
-  const [input, setInput]   = useState("");
-  const [hist, setHist]     = useState([{ ok:true, text:"BRCS COMMAND INTERFACE v4.0 — TYPE help FOR COMMANDS", ts:"" }]);
-  const [cmdHist, setCmdHist] = useState([]);
-  const [cmdIdx,  setCmdIdx]  = useState(-1);
+const SVC_COLOR = { ARMY:"#22c55e", AIR_FORCE:"#38bdf8", NAVY:"#0ea5e9", SPECIAL_FORCES:"#f59e0b" };
+const SVC_ICON  = { ARMY:"⚔️", AIR_FORCE:"✈️", NAVY:"⚓", SPECIAL_FORCES:"🪖" };
+
+// ── Toast system ──────────────────────────────────────────────────────────────
+function useToasts() {
+  const [toasts, setToasts] = useState([]);
+  const add = useCallback((msg, ok = true) => {
+    const id = Date.now() + Math.random();
+    setToasts(t => [...t.slice(-3), { id, msg, ok }]);
+    setTimeout(() => setToasts(t => t.filter(x => x.id !== id)), 3500);
+  }, []);
+  return { toasts, add };
+}
+
+function ToastLayer({ toasts }) {
+  return (
+    <div style={{
+      position:"absolute", bottom:72, left:"50%", transform:"translateX(-50%)",
+      zIndex:800, display:"flex", flexDirection:"column-reverse", gap:6,
+      alignItems:"center", pointerEvents:"none",
+    }}>
+      {toasts.map(t => (
+        <div key={t.id} style={{
+          background: t.ok ? "rgba(0,229,160,0.12)" : "rgba(255,51,85,0.12)",
+          border:`1px solid ${t.ok ? "#00e5a044" : "#ff335544"}`,
+          color: t.ok ? C.bravo : C.alpha,
+          borderRadius:8, padding:"8px 22px", fontSize:12, fontWeight:700,
+          fontFamily:"'Courier New',monospace", letterSpacing:0.5,
+          whiteSpace:"nowrap", maxWidth:500,
+          backdropFilter:"blur(8px)",
+        }}>{t.msg}</div>
+      ))}
+    </div>
+  );
+}
+
+// ── Game Command Bar ──────────────────────────────────────────────────────────
+function GameCommandBar({ selectedAsset, assets, onExec, clearAlerts, fogOfWar, setFogOfWar, orderMode, setOrderMode }) {
+  const [input, setInput] = useState("");
   const inputRef = useRef(null);
-  const scrollRef = useRef(null);
+  const asset = selectedAsset ? assets.find(a => a.id === selectedAsset) : null;
+  const canOrder = asset && asset.faction !== "ALPHA" && !asset.is_destroyed;
+  const isBravo  = asset && asset.faction !== "ALPHA";
 
-  _ue(() => { if (open) setTimeout(()=>inputRef.current?.focus(), 50); }, [open]);
-  _ue(() => { if (scrollRef.current) scrollRef.current.scrollTop = scrollRef.current.scrollHeight; }, [hist]);
-
-  const submit = async e => {
-    e.preventDefault();
-    if (!input.trim()) return;
-    const cmd = input.trim();
-    const ts = new Date().toLocaleTimeString("en-IN",{hour12:false});
-    setHist(h=>[...h,{ok:true,text:`> ${cmd}`,ts,dim:true}]);
-    setCmdHist(p=>[cmd,...p.slice(0,29)]);
-    setCmdIdx(-1); setInput("");
-    const result = await onExec(cmd);
-    if (result.msg==="__CLEAR__") { setHist([{ok:true,text:"Console cleared.",ts}]); return; }
-    setHist(h=>[...h,{ok:result.ok,text:result.msg,ts}]);
+  const doCmd = async cmd => {
+    if (!cmd.trim()) return;
+    await onExec(cmd);
+    setInput("");
   };
 
-  const handleKey = e => {
-    if (e.key==="ArrowUp"){e.preventDefault();const ni=Math.min(cmdIdx+1,cmdHist.length-1);setCmdIdx(ni);setInput(cmdHist[ni]??"");}
-    if (e.key==="ArrowDown"){e.preventDefault();const ni=Math.max(cmdIdx-1,-1);setCmdIdx(ni);setInput(ni===-1?"":cmdHist[ni]);}
-    if (e.key==="Escape") setOpen(false);
-  };
+  const btns = [
+    { icon:"⊘",  label:"HALT",    color:"#ff3355", disabled:!isBravo, action:() => isBravo && doCmd(`HALT ${asset.callsign}`) },
+    { icon:"⚡", label:"ENGAGE",  color:"#f97316", disabled:!isBravo, action:() => isBravo && doCmd(`ENGAGE ${asset.callsign}`) },
+    { icon:"✅", label:"ACTIVE",  color:C.bravo,   disabled:!isBravo, action:() => isBravo && doCmd(`ACTIVE ${asset.callsign}`) },
+    { icon:"🎯", label:"ORDER",   color:C.gold,    disabled:!canOrder, active:!!orderMode, action:() => canOrder && doCmd(`ORDER ${asset.callsign}`) },
+    { icon: fogOfWar?"👁":"🌐", label:fogOfWar?"FOG ON":"FOG OFF", color:fogOfWar?C.bravo:C.muted, action:() => setFogOfWar(v=>!v) },
+    { icon:"⟳",  label:"SEED",   color:C.purple,  action:() => doCmd("SEED") },
+    { icon:"🗑",  label:"CLR LOG", color:C.muted,  action:clearAlerts },
+  ];
 
   return (
-    <>
-      <button onClick={()=>setOpen(o=>!o)} style={{
-        position:"absolute",bottom:open?216:14,right:14,zIndex:600,
-        background:"rgba(1,10,3,.92)",border:`1px solid ${open?"#ef444433":"#162916"}`,
-        color:open?"#ef4444":"#22c55e",borderRadius:3,padding:"4px 12px",
-        fontSize:9,fontWeight:700,cursor:"pointer",fontFamily:"'Courier New',monospace",
-        letterSpacing:1.5,transition:"bottom .2s",
-      }}>{open?"✕ CLOSE":"▶ COMMAND CONSOLE"}</button>
+    <div style={{
+      position:"absolute", bottom:0, left:0, right:0, zIndex:600, height:62,
+      background:"rgba(5,7,14,0.99)", borderTop:"1px solid rgba(255,255,255,0.07)",
+      display:"flex", alignItems:"center", gap:8, padding:"0 14px",
+    }}>
+      {/* Quick-action buttons */}
+      <div style={{ display:"flex", gap:5, flexShrink:0 }}>
+        {btns.map((b, i) => (
+          <button key={i} onClick={b.action} disabled={b.disabled} title={b.label} style={{
+            background: b.active ? `${b.color}28` : b.disabled ? "transparent" : `${b.color}0e`,
+            border:`1px solid ${b.disabled ? "rgba(255,255,255,0.05)" : b.active ? b.color : `${b.color}44`}`,
+            color: b.disabled ? "#2a3240" : b.color,
+            borderRadius:7, padding:"4px 9px", cursor:b.disabled?"not-allowed":"pointer",
+            fontFamily:"'Courier New',monospace", fontSize:8, fontWeight:700, letterSpacing:0.8,
+            display:"flex", flexDirection:"column", alignItems:"center", gap:1, minWidth:44,
+            transition:"all .13s",
+          }}>
+            <span style={{ fontSize:14, lineHeight:1 }}>{b.icon}</span>
+            <span>{b.label}</span>
+          </button>
+        ))}
+      </div>
 
-      {open && (
+      <div style={{ width:1, height:34, background:"rgba(255,255,255,0.06)", flexShrink:0 }}/>
+
+      {/* Text input */}
+      <div style={{
+        flex:1, display:"flex", alignItems:"center", gap:8,
+        background:"rgba(255,255,255,0.04)", border:"1px solid rgba(255,255,255,0.08)",
+        borderRadius:7, padding:"0 12px", height:38,
+      }}>
+        <span style={{ fontSize:11, color:C.bravo, fontFamily:"'Courier New',monospace", flexShrink:0, fontWeight:700 }}>BRCS›</span>
+        <input
+          ref={inputRef}
+          value={input}
+          onChange={e => setInput(e.target.value)}
+          onKeyDown={e => {
+            if (e.key === "Enter") doCmd(input);
+            if (e.key === "Escape") setInput("");
+          }}
+          placeholder="type command — HALT, ENGAGE, ORDER, STATUS, LIST, HELP"
+          style={{
+            flex:1, background:"transparent", border:"none", outline:"none",
+            color:C.text, fontSize:11, fontFamily:"'Courier New',monospace", caretColor:C.bravo,
+          }}
+        />
+        {input && (
+          <button onClick={() => doCmd(input)} style={{
+            background:`${C.bravo}18`, border:`1px solid ${C.bravo}44`, color:C.bravo,
+            borderRadius:5, padding:"3px 10px", fontSize:9, fontWeight:700,
+            cursor:"pointer", fontFamily:"'Courier New',monospace", letterSpacing:1, flexShrink:0,
+          }}>EXEC</button>
+        )}
+      </div>
+    </div>
+  );
+}
+
+// ── Selected Asset Card ───────────────────────────────────────────────────────
+function AssetCard({ asset, onClose, onOrder, orderMode }) {
+  if (!asset) return null;
+  const isAlpha     = asset.faction === "ALPHA";
+  const isDestroyed = asset.is_destroyed === true;
+  const hpPct       = asset.max_hp ? Math.max(0, Math.round((asset.hp ?? asset.max_hp) / asset.max_hp * 100)) : 100;
+  const hpColor     = isDestroyed ? "#444" : hpPct > 60 ? C.bravo : hpPct > 30 ? "#f97316" : C.alpha;
+  const accent      = isDestroyed ? "#444" : isAlpha ? C.alpha : C.bravo;
+  const statusUpper = (asset.status || "ACTIVE").toUpperCase();
+  const isHalted    = ["HALTED","MAINTENANCE","DISABLED"].includes(statusUpper);
+
+  return (
+    <div style={{
+      position:"absolute", bottom:72, left:"50%", transform:"translateX(-50%)",
+      zIndex:550, background:"rgba(5,8,16,0.98)",
+      border:`1px solid ${accent}55`, borderTop:`2px solid ${accent}`,
+      borderRadius:10, padding:"14px 18px", minWidth:340, maxWidth:440,
+      backdropFilter:"blur(16px)", boxShadow:`0 -2px 40px ${accent}15`,
+      fontFamily:"'Courier New',monospace",
+    }}>
+      <div style={{ display:"flex", alignItems:"flex-start", gap:14, marginBottom:10 }}>
+        {/* Big icon */}
         <div style={{
-          position:"absolute",bottom:0,left:0,right:0,zIndex:590,
-          height:210,background:"rgba(0,8,2,.97)",borderTop:"1px solid #22c55e22",
-          display:"flex",flexDirection:"column",fontFamily:"'Courier New',monospace",
-        }}>
-          <div style={{height:22,flexShrink:0,background:"#050e05",borderBottom:"1px solid #0d1e0d",padding:"0 12px",display:"flex",alignItems:"center",justifyContent:"space-between"}}>
-            <span style={{fontSize:8,color:"#3d7a3d",letterSpacing:2,fontWeight:700}}>◈ BRCS TACTICAL CONSOLE</span>
-            <span style={{fontSize:7,color:"#1a4a1a"}}>↑↓ history · ESC close</span>
+          width:54, height:54, borderRadius:10, flexShrink:0,
+          background:`${accent}14`, border:`1px solid ${accent}33`,
+          display:"flex", alignItems:"center", justifyContent:"center", fontSize:30,
+          filter:isDestroyed?"grayscale(1) brightness(.35)":undefined,
+        }}>{asset.icon}</div>
+
+        <div style={{ flex:1, minWidth:0 }}>
+          <div style={{ display:"flex", alignItems:"center", gap:7, flexWrap:"wrap", marginBottom:3 }}>
+            <span style={{ fontSize:17, fontWeight:800, color:accent, letterSpacing:2 }}>{asset.callsign}</span>
+            <span style={{
+              fontSize:8, padding:"2px 8px", borderRadius:5,
+              background:`${accent}18`, border:`1px solid ${accent}44`, color:accent, fontWeight:700, letterSpacing:1,
+            }}>{isAlpha?"ALPHA":"BRAVO"}</span>
+            {isDestroyed && <span style={{ fontSize:8, padding:"2px 7px", borderRadius:5, background:"#44444420", color:"#888", fontWeight:700 }}>KIA</span>}
+            {isHalted && !isDestroyed && <span style={{ fontSize:8, padding:"2px 7px", borderRadius:5, background:`${C.alpha}18`, color:C.alpha, fontWeight:700 }}>HALT</span>}
           </div>
-          <div ref={scrollRef} style={{flex:1,overflowY:"auto",padding:"6px 12px"}}>
-            {hist.map((h,i)=>(
-              <div key={i} style={{fontSize:10,lineHeight:1.6,color:h.dim?"#2d5a2d":h.ok?"#4ade80":"#ef4444",display:"flex",gap:8}}>
-                {h.ts&&<span style={{color:"#1a3a1a",flexShrink:0}}>[{h.ts}]</span>}
-                <span>{h.text}</span>
-              </div>
-            ))}
+          <div style={{ fontSize:10, color:C.muted, marginBottom:7, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>{asset.name}</div>
+
+          {/* HP Bar */}
+          <div>
+            <div style={{ display:"flex", justifyContent:"space-between", fontSize:9, marginBottom:3 }}>
+              <span style={{ color:C.muted, letterSpacing:1 }}>HEALTH</span>
+              <span style={{ color:hpColor, fontWeight:700 }}>{isDestroyed?"DESTROYED":`${asset.hp??0} / ${asset.max_hp??0}`}</span>
+            </div>
+            <div style={{ height:7, background:"rgba(255,255,255,0.07)", borderRadius:4, overflow:"hidden" }}>
+              <div style={{ height:"100%", width:`${isDestroyed?0:hpPct}%`, background:hpColor, borderRadius:4, transition:"width .4s ease" }}/>
+            </div>
           </div>
-          <form onSubmit={submit} style={{display:"flex",alignItems:"center",gap:8,padding:"6px 12px",borderTop:"1px solid #0d1e0d",flexShrink:0}}>
-            <span style={{fontSize:11,color:"#22c55e",flexShrink:0}}>BRCS›</span>
-            <input ref={inputRef} value={input} onChange={e=>setInput(e.target.value)} onKeyDown={handleKey}
-              placeholder="type a command..." style={{flex:1,background:"transparent",border:"none",outline:"none",color:"#4ade80",fontSize:11,fontFamily:"'Courier New',monospace",caretColor:"#22c55e"}}/>
-            <button type="submit" style={{background:"transparent",border:"1px solid #162916",color:"#22c55e",borderRadius:2,padding:"2px 8px",fontSize:8,cursor:"pointer",fontFamily:"inherit",letterSpacing:1}}>EXEC</button>
-          </form>
         </div>
+
+        <button onClick={onClose} style={{ background:"transparent", border:"none", color:C.muted, cursor:"pointer", fontSize:18, lineHeight:1, flexShrink:0, padding:0, marginTop:-2 }}>✕</button>
+      </div>
+
+      {/* Stats */}
+      <div style={{ display:"grid", gridTemplateColumns:"repeat(6,1fr)", gap:5, marginBottom:isAlpha||isDestroyed?0:10 }}>
+        {[
+          ["SPD",    `${asset.current_speed?.toFixed(0)??0}kmh`],
+          ["HDG",    `${asset.current_heading?.toFixed(0)??0}°`],
+          ["FUEL",   `${asset.fuel_pct?.toFixed(0)??100}%`],
+          ["ATK",    `${asset.attack_power??0}`],
+          ["RNG",    `${asset.range_km??0}km`],
+          ["STATUS", statusUpper.slice(0,6)],
+        ].map(([k,v]) => (
+          <div key={k} style={{
+            background:"rgba(255,255,255,0.04)", borderRadius:6, padding:"5px 3px", textAlign:"center",
+            border:"1px solid rgba(255,255,255,0.06)",
+          }}>
+            <div style={{ fontSize:7, color:C.muted, marginBottom:2, letterSpacing:0.5 }}>{k}</div>
+            <div style={{ fontSize:9, color:k==="STATUS"&&isHalted?C.alpha:C.text, fontWeight:700 }}>{v}</div>
+          </div>
+        ))}
+      </div>
+
+      {!isAlpha && !isDestroyed && (
+        <button onClick={onOrder} style={{
+          width:"100%",
+          background:orderMode?`${C.gold}20`:`${C.gold}0c`,
+          border:`1px solid ${orderMode?C.gold:`${C.gold}44`}`,
+          color:C.gold, borderRadius:7, padding:"9px 0",
+          fontSize:11, fontWeight:700, cursor:"pointer",
+          fontFamily:"'Courier New',monospace", letterSpacing:1.5, transition:"all .15s",
+        }}>{orderMode?"🎯  ISSUING ORDERS...":"▶  ISSUE MOVEMENT ORDER"}</button>
       )}
+
+      {(asset.zoneStatus||[]).filter(z=>z.state==="IN").map(z=>(
+        <div key={z.zoneId} style={{ marginTop:5, fontSize:8, color:z.zoneType==="HOSTILE"||z.zoneType==="MINEFIELD"?C.alpha:"#f97316", letterSpacing:0.3 }}>
+          ▶ IN {z.zoneType}: {z.zoneName}
+        </div>
+      ))}
+    </div>
+  );
+}
+
+// ── Match HUD (Valorant-style top center) ─────────────────────────────────────
+function MatchHUD({ ms, bravoLive, alphaLive }) {
+  if (!ms) return null;
+  const bScore = ms.bravo_score ?? 0;
+  const aScore = ms.alpha_score ?? 0;
+  const max    = Math.max(bScore, aScore, 500);
+  const active = ms.status === "ACTIVE";
+
+  return (
+    <div style={{
+      position:"absolute", top:10, left:"50%", transform:"translateX(-50%)",
+      zIndex:500, fontFamily:"'Courier New',monospace", minWidth:320,
+    }}>
+      <div style={{
+        background:"rgba(5,8,15,0.96)", border:"1px solid rgba(255,255,255,0.1)",
+        borderRadius:10, padding:"10px 18px", backdropFilter:"blur(12px)",
+      }}>
+        {/* Status pill */}
+        <div style={{ textAlign:"center", marginBottom:8 }}>
+          <span style={{
+            fontSize:8, fontWeight:700, letterSpacing:2, padding:"3px 12px", borderRadius:20,
+            background:active?"rgba(251,191,36,0.12)":ms.status==="BRAVO_WINS"?"rgba(0,229,160,0.14)":"rgba(255,51,85,0.14)",
+            border:`1px solid ${active?`${C.gold}44`:ms.status==="BRAVO_WINS"?`${C.bravo}44`:`${C.alpha}44`}`,
+            color:active?C.gold:ms.status==="BRAVO_WINS"?C.bravo:C.alpha,
+          }}>
+            {active?"● BATTLE ACTIVE":ms.status==="BRAVO_WINS"?"★ BRAVO VICTORY":"✦ ALPHA VICTORY"}
+          </span>
+        </div>
+
+        {/* Score row */}
+        <div style={{ display:"flex", alignItems:"center", gap:10 }}>
+          {/* BRAVO */}
+          <div style={{ flex:1, textAlign:"right" }}>
+            <div style={{ fontSize:9, color:C.bravo, fontWeight:700, letterSpacing:2, marginBottom:2 }}>BRAVO</div>
+            <div style={{ fontSize:22, fontWeight:800, color:C.bravo, letterSpacing:1, lineHeight:1 }}>{bScore.toLocaleString()}</div>
+            <div style={{ fontSize:8, color:C.muted, marginTop:2 }}>{bravoLive} alive · {ms.alpha_assets_destroyed??0} kills</div>
+          </div>
+
+          {/* VS divider */}
+          <div style={{ textAlign:"center", flexShrink:0, padding:"0 4px" }}>
+            <div style={{ fontSize:10, color:C.muted, fontWeight:700 }}>VS</div>
+            {/* Progress bar */}
+            <div style={{ width:60, height:4, background:"rgba(255,255,255,0.08)", borderRadius:2, marginTop:4, overflow:"hidden" }}>
+              <div style={{
+                height:"100%",
+                width:`${Math.round(bScore/(bScore+aScore||1)*100)}%`,
+                background:`linear-gradient(90deg,${C.bravo},${C.bravo}88)`,
+                borderRadius:2, transition:"width .6s ease",
+              }}/>
+            </div>
+            <div style={{ display:"flex", justifyContent:"space-between", marginTop:2 }}>
+              <div style={{ width:6, height:6, borderRadius:"50%", background:C.bravo }}/>
+              <div style={{ width:6, height:6, borderRadius:"50%", background:C.alpha }}/>
+            </div>
+          </div>
+
+          {/* ALPHA */}
+          <div style={{ flex:1 }}>
+            <div style={{ fontSize:9, color:C.alpha, fontWeight:700, letterSpacing:2, marginBottom:2 }}>ALPHA</div>
+            <div style={{ fontSize:22, fontWeight:800, color:C.alpha, letterSpacing:1, lineHeight:1 }}>{aScore.toLocaleString()}</div>
+            <div style={{ fontSize:8, color:C.muted, marginTop:2 }}>{alphaLive} alive · {ms.bravo_assets_destroyed??0} kills</div>
+          </div>
+        </div>
+
+        {/* Zone control row */}
+        <div style={{ display:"flex", justifyContent:"center", gap:12, marginTop:8, paddingTop:6, borderTop:"1px solid rgba(255,255,255,0.06)" }}>
+          <span style={{ fontSize:8, color:C.bravo }}>ZONES: <b>{ms.zones_controlled_bravo??0}</b></span>
+          <span style={{ fontSize:8, color:C.muted }}>·</span>
+          <span style={{ fontSize:8, color:C.alpha }}>ZONES: <b>{ms.zones_controlled_alpha??0}</b></span>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ── Order Mode Overlay ────────────────────────────────────────────────────────
+function OrderOverlay({ orderMode, onConfirm, onCancel }) {
+  if (!orderMode) return null;
+  return (
+    <>
+      {/* Top banner */}
+      <div style={{
+        position:"absolute", top:10, left:"50%", transform:"translateX(-50%)",
+        zIndex:700, background:"rgba(5,8,15,0.97)",
+        border:`1px solid ${C.gold}66`, borderRadius:10,
+        padding:"10px 20px", display:"flex", alignItems:"center", gap:14,
+        fontFamily:"'Courier New',monospace", backdropFilter:"blur(12px)",
+        boxShadow:`0 0 30px ${C.gold}22`,
+        marginTop:100,
+      }}>
+        <span style={{ fontSize:20 }}>🎯</span>
+        <div>
+          <div style={{ fontSize:10, color:C.gold, fontWeight:700, letterSpacing:2 }}>ORDER MODE — {orderMode.callsign}</div>
+          <div style={{ fontSize:8, color:C.muted }}>{orderMode.waypoints.length} waypoint{orderMode.waypoints.length!==1?"s":""} set · click map to add</div>
+        </div>
+        <div style={{ display:"flex", gap:8, marginLeft:8 }}>
+          <button onClick={onConfirm} disabled={orderMode.waypoints.length===0} style={{
+            background:`${C.bravo}20`, border:`1px solid ${C.bravo}66`, color:C.bravo,
+            borderRadius:6, padding:"7px 16px", fontSize:10, fontWeight:700,
+            cursor:orderMode.waypoints.length===0?"not-allowed":"pointer",
+            fontFamily:"'Courier New',monospace", letterSpacing:1, opacity:orderMode.waypoints.length===0?0.4:1,
+          }}>CONFIRM ✓</button>
+          <button onClick={onCancel} style={{
+            background:`${C.alpha}12`, border:`1px solid ${C.alpha}55`, color:C.alpha,
+            borderRadius:6, padding:"7px 14px", fontSize:10, fontWeight:700,
+            cursor:"pointer", fontFamily:"'Courier New',monospace", letterSpacing:1,
+          }}>CANCEL</button>
+        </div>
+      </div>
+      {/* Map hint */}
+      <div style={{
+        position:"absolute", top:"50%", left:"50%", transform:"translate(-50%,-50%)",
+        zIndex:600, pointerEvents:"none", textAlign:"center", fontFamily:"'Courier New',monospace",
+        color:C.gold, textShadow:`0 0 20px ${C.gold}`,
+      }}>
+        <div style={{ fontSize:11, fontWeight:700, letterSpacing:1.5 }}>CLICK MAP TO ADD WAYPOINTS</div>
+        <div style={{ fontSize:9, color:C.bravo, marginTop:4 }}>{orderMode.waypoints.length} point{orderMode.waypoints.length!==1?"s":""} planned</div>
+      </div>
     </>
   );
 }
 
+// ── End-Game Overlay ──────────────────────────────────────────────────────────
+function EndGameOverlay({ ms, bravoLive, alphaLive, onReset, onDismiss }) {
+  if (!ms || ms.status === "ACTIVE") return null;
+  const bravoWins = ms.status === "BRAVO_WINS";
+  const accent = bravoWins ? C.bravo : C.alpha;
+  const bScore = ms.bravo_score ?? 0;
+  const aScore = ms.alpha_score ?? 0;
+
+  return (
+    <div style={{
+      position:"fixed", inset:0, zIndex:900,
+      background:"rgba(0,0,0,0.88)", backdropFilter:"blur(6px)",
+      display:"flex", alignItems:"center", justifyContent:"center",
+      fontFamily:"'Courier New',monospace",
+    }}>
+      <div style={{
+        background:"rgba(6,9,16,0.99)", border:`1px solid ${accent}55`,
+        borderTop:`3px solid ${accent}`, borderRadius:14, padding:"36px 48px",
+        maxWidth:520, width:"90%", textAlign:"center",
+        boxShadow:`0 0 80px ${accent}18`,
+      }}>
+        <div style={{ fontSize:52, marginBottom:10 }}>{bravoWins?"🛡️":"⚔️"}</div>
+        <div style={{ fontSize:24, fontWeight:800, color:accent, letterSpacing:4, marginBottom:4, textShadow:`0 0 30px ${accent}88` }}>
+          {bravoWins ? "★ BRAVO VICTORY" : "✦ ALPHA VICTORY"}
+        </div>
+        <div style={{ fontSize:9, color:C.muted, letterSpacing:3, marginBottom:28 }}>
+          {bravoWins?"INDIA PREVAILS — MISSION ACCOMPLISHED":"ALPHA FORCES VICTORIOUS — STAND DOWN"}
+        </div>
+
+        {/* Score cards */}
+        <div style={{ display:"grid", gridTemplateColumns:"1fr auto 1fr", gap:10, alignItems:"center", marginBottom:20 }}>
+          {/* BRAVO */}
+          <div style={{
+            background:bravoWins?`${C.bravo}10`:"rgba(255,255,255,0.03)",
+            border:`1px solid ${bravoWins?`${C.bravo}44`:"rgba(255,255,255,0.07)"}`,
+            borderRadius:10, padding:"14px 10px",
+          }}>
+            <div style={{ fontSize:9, color:C.bravo, letterSpacing:2, marginBottom:6 }}>BRAVO</div>
+            <div style={{ fontSize:30, fontWeight:800, color:C.bravo, marginBottom:4 }}>{bScore.toLocaleString()}</div>
+            <div style={{ fontSize:7, color:C.muted }}>POINTS</div>
+            <div style={{ marginTop:8, display:"flex", flexDirection:"column", gap:3 }}>
+              {[["KILLS",(ms.alpha_assets_destroyed??0)],["ZONES",(ms.zones_controlled_bravo??0)],["ALIVE",bravoLive]].map(([k,v])=>(
+                <div key={k} style={{ display:"flex", justifyContent:"space-between", fontSize:9 }}>
+                  <span style={{ color:C.muted }}>{k}</span>
+                  <span style={{ color:C.bravo, fontWeight:700 }}>{v}</span>
+                </div>
+              ))}
+            </div>
+          </div>
+
+          <div style={{ fontSize:12, color:"rgba(255,255,255,0.1)", fontWeight:700 }}>VS</div>
+
+          {/* ALPHA */}
+          <div style={{
+            background:!bravoWins?`${C.alpha}10`:"rgba(255,255,255,0.03)",
+            border:`1px solid ${!bravoWins?`${C.alpha}44`:"rgba(255,255,255,0.07)"}`,
+            borderRadius:10, padding:"14px 10px",
+          }}>
+            <div style={{ fontSize:9, color:C.alpha, letterSpacing:2, marginBottom:6 }}>ALPHA</div>
+            <div style={{ fontSize:30, fontWeight:800, color:C.alpha, marginBottom:4 }}>{aScore.toLocaleString()}</div>
+            <div style={{ fontSize:7, color:C.muted }}>POINTS</div>
+            <div style={{ marginTop:8, display:"flex", flexDirection:"column", gap:3 }}>
+              {[["KILLS",(ms.bravo_assets_destroyed??0)],["ZONES",(ms.zones_controlled_alpha??0)],["ALIVE",alphaLive]].map(([k,v])=>(
+                <div key={k} style={{ display:"flex", justifyContent:"space-between", fontSize:9 }}>
+                  <span style={{ color:C.muted }}>{k}</span>
+                  <span style={{ color:C.alpha, fontWeight:700 }}>{v}</span>
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
+
+        {/* Margin bar */}
+        <div style={{
+          background:`${accent}14`, border:`1px solid ${accent}33`,
+          borderRadius:6, padding:"8px 0", marginBottom:22,
+          fontSize:9, color:accent, fontWeight:700, letterSpacing:1.5,
+        }}>
+          {bravoWins
+            ? `BRAVO +${(bScore-aScore).toLocaleString()} pts · ${ms.alpha_assets_destroyed??0} enemy eliminated`
+            : `ALPHA +${(aScore-bScore).toLocaleString()} pts · ${ms.bravo_assets_destroyed??0} BRAVO eliminated`}
+        </div>
+
+        <div style={{ display:"flex", gap:10, justifyContent:"center" }}>
+          <button onClick={onReset} style={{
+            background:`${C.bravo}18`, border:`1px solid ${C.bravo}66`, color:C.bravo,
+            borderRadius:8, padding:"11px 28px", fontSize:11, fontWeight:700,
+            cursor:"pointer", fontFamily:"'Courier New',monospace", letterSpacing:1.5,
+          }}>⟳  RESET MATCH</button>
+          <button onClick={onDismiss} style={{
+            background:"rgba(255,255,255,0.04)", border:"1px solid rgba(255,255,255,0.1)",
+            color:C.muted, borderRadius:8, padding:"11px 20px",
+            fontSize:11, cursor:"pointer", fontFamily:"'Courier New',monospace", letterSpacing:1,
+          }}>INSPECT MAP</button>
+        </div>
+
+        <div style={{ marginTop:14, fontSize:8, color:"rgba(255,255,255,0.15)", letterSpacing:1 }}>
+          RESET MATCH re-seeds all forces and restarts the simulation
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ── Main App ──────────────────────────────────────────────────────────────────
 export default function App() {
   const auth    = useAuth();
   const tracker = useTracker();
@@ -99,48 +471,45 @@ export default function App() {
   const [activeCmd,      setActiveCmd]      = useState("ALL");
   const [activeSector,   setActiveSector]   = useState("ALL");
   const [fogOfWar,       setFogOfWar]       = useState(true);
-  const [orderMode,      setOrderMode]      = useState(null); // { assetId, callsign, waypoints:[] }
+  const [orderMode,      setOrderMode]      = useState(null);
   const [matchDismissed, setMatchDismissed] = useState(false);
+  const { toasts, add: addToast } = useToasts();
 
   _ue(() => {
     const t = setInterval(() => setClock(new Date()), 1000);
     return () => clearInterval(t);
   }, []);
 
-  // Reset dismiss flag when a fresh match begins
   _ue(() => {
     if (tracker.matchState?.status === "ACTIVE") setMatchDismissed(false);
   }, [tracker.matchState?.status]);
 
-  // Must be before any conditional returns — Rules of Hooks
-  const handleCmdChange = useCallback((cmd) => {
+  const handleCmdChange = useCallback(cmd => {
     setActiveCmd(cmd);
     setActiveSector(cmd);
   }, []);
 
-  const handleExecCommand = useCallback(async (cmd) => {
+  const handleExecCommand = useCallback(async cmd => {
     const result = await tracker.executeCommand(cmd);
-    // Intercept ORDER command to enter order mode
     if (result.ok && result.msg?.startsWith("__ORDER__:")) {
       const [, assetId, callsign] = result.msg.split(":");
       setOrderMode({ assetId, callsign, waypoints: [] });
       setSelectedAsset(assetId);
-      return { ok: true, msg: `◈ ORDER MODE — ${callsign} selected. Click map to set waypoints. Type CONFIRM or CANCEL.` };
+      addToast(`◈ ORDER MODE — ${callsign}. Click map to place waypoints.`, true);
+      return result;
     }
-    if (result.ok && result.msg === "CONFIRM" && orderMode) {
-      // handled below
-    }
+    if (result.msg && result.msg !== "__CLEAR__") addToast(result.msg, result.ok);
     return result;
-  }, [tracker, orderMode]);
+  }, [tracker, addToast]);
 
   if (auth.loading) {
     return (
-      <div style={{position:"fixed",inset:0,background:"#000d02",display:"flex",alignItems:"center",justifyContent:"center",fontFamily:"'Courier New',monospace",color:"#22c55e"}}>
-        <div style={{textAlign:"center"}}>
-          <div style={{fontSize:32,marginBottom:16,filter:"drop-shadow(0 0 20px #22c55e)"}}>🛡️</div>
-          <div style={{fontSize:10,letterSpacing:3,animation:"statusPulse 1s infinite"}}>AUTHENTICATING...</div>
+      <div style={{ position:"fixed", inset:0, background:C.bg, display:"flex", alignItems:"center", justifyContent:"center", fontFamily:"'Courier New',monospace" }}>
+        <div style={{ textAlign:"center" }}>
+          <div style={{ fontSize:48, marginBottom:16, filter:`drop-shadow(0 0 20px ${C.bravo})` }}>🛡️</div>
+          <div style={{ fontSize:11, letterSpacing:3, color:C.bravo, animation:"pulse 1s infinite" }}>AUTHENTICATING...</div>
         </div>
-        <style>{`@keyframes statusPulse{0%,100%{opacity:1}50%{opacity:.2}}`}</style>
+        <style>{`@keyframes pulse{0%,100%{opacity:1}50%{opacity:.2}}`}</style>
       </div>
     );
   }
@@ -151,114 +520,97 @@ export default function App() {
 
   const pad = n => String(n).padStart(2,"0");
   const timeStr = `${pad(clock.getHours())}:${pad(clock.getMinutes())}:${pad(clock.getSeconds())}`;
-  const dateStr = clock.toLocaleDateString("en-IN",{ day:"2-digit", month:"short", year:"numeric" });
 
   const ms         = tracker.matchState;
-  const bravoLive  = (tracker.assets||[]).filter(a => a.faction === "BRAVO" && !a.is_destroyed).length;
-  const alphaLive  = (tracker.assets||[]).filter(a => a.faction === "ALPHA" && !a.is_destroyed).length;
+  const bravoLive  = (tracker.assets||[]).filter(a => a.faction==="BRAVO"&&!a.is_destroyed).length;
+  const alphaLive  = (tracker.assets||[]).filter(a => a.faction==="ALPHA"&&!a.is_destroyed).length;
   const critCount  = (tracker.alerts||[]).filter(a => a.severity==="CRITICAL"||a.severity==="EMERGENCY").length;
-  const inHostile = (tracker.assets||[]).filter(a => (a.zoneStatus||[]).some(z=>z.zoneType==="HOSTILE"&&z.state==="IN")).length;
-  const haltedCount = (tracker.assets||[]).filter(a => ["HALTED","MAINTENANCE","DISABLED"].includes((a.status||"").toUpperCase())).length;
-  const engagedCount = (tracker.assets||[]).filter(a => (a.status||"").toUpperCase()==="ENGAGED").length;
+  const selectedA  = selectedAsset ? (tracker.assets||[]).find(x=>x.id===selectedAsset) : null;
 
   return (
-    <div style={{ display:"flex", flexDirection:"column", height:"100vh", background:"#010a03", overflow:"hidden", fontFamily:"'Courier New',monospace" }}>
+    <div style={{ display:"flex", flexDirection:"column", height:"100vh", background:C.bg, overflow:"hidden", fontFamily:"'Courier New',monospace" }}>
 
-      {/* ── TOP COMMAND BAR ──────────────────────────────────── */}
+      {/* ── TOP BAR ──────────────────────────────────────────── */}
       <div style={{
-        height:50, flexShrink:0,
-        background:"linear-gradient(90deg,#060f06,#091509,#060f06)",
-        borderBottom:"1px solid #162916",
+        height:52, flexShrink:0, background:"rgba(5,8,14,0.99)",
+        borderBottom:"1px solid rgba(255,255,255,0.07)",
         display:"flex", alignItems:"center", justifyContent:"space-between",
-        padding:"0 16px", gap:12,
+        padding:"0 16px", gap:12, zIndex:600,
       }}>
-        {/* Left: Branding + active command */}
-        <div style={{ display:"flex", alignItems:"center", gap:10 }}>
-          <div style={{ fontSize:20, filter:"drop-shadow(0 0 8px #22c55e)" }}>🛡️</div>
+        {/* Left: Brand */}
+        <div style={{ display:"flex", alignItems:"center", gap:10, flexShrink:0 }}>
+          <div style={{ fontSize:22, filter:`drop-shadow(0 0 10px ${C.bravo})` }}>🛡️</div>
           <div>
-            <div style={{ fontSize:14, fontWeight:700, color:"#22c55e", letterSpacing:3, lineHeight:1 }}>BRCS</div>
-            <div style={{ fontSize:7, color:"#2d5a2d", letterSpacing:2 }}>BHARAT RAKSHA COMMAND SYSTEM</div>
+            <div style={{ fontSize:15, fontWeight:800, color:C.bravo, letterSpacing:4, lineHeight:1 }}>BRCS</div>
+            <div style={{ fontSize:7, color:C.muted, letterSpacing:2 }}>BHARAT RAKSHA COMMAND SYSTEM</div>
           </div>
-          <div style={{ width:1, height:26, background:"#162916", marginLeft:4 }}/>
-          <div style={{ display:"flex", flexDirection:"column", gap:1 }}>
-            <div style={{ fontSize:8, color:"#3d7a3d", letterSpacing:1.5, fontWeight:700 }}>
-              {SECTOR_LABELS[activeCmd] || "ALL INDIA"}
-            </div>
-            <div style={{ fontSize:7, color:"#2d4a2d" }}>INTEGRATED BATTLE MANAGEMENT</div>
-          </div>
+          <div style={{ width:1, height:28, background:"rgba(255,255,255,0.08)", marginLeft:6 }}/>
+          <div style={{ fontSize:9, color:C.sub, letterSpacing:1 }}>{activeCmd==="ALL"?"ALL SECTORS":activeCmd}</div>
         </div>
 
-        {/* Center: Live stats */}
+        {/* Center: Live stat pills */}
         <div style={{ display:"flex", gap:5 }}>
           {[
-            { label:"ASSETS",   value:(tracker.assets||[]).length,                 color:"#22c55e" },
-            { label:"ENGAGED",  value:engagedCount,                                color:engagedCount>0?"#f97316":"#22c55e" },
-            { label:"HALTED",   value:haltedCount,                                 color:haltedCount>0?"#ef4444":"#22c55e" },
-            { label:"HOSTILE",  value:inHostile,                                   color:inHostile>0?"#ef4444":"#22c55e" },
-            { label:"ALERTS",   value:(tracker.alerts||[]).length,                 color:critCount>0?"#ef4444":"#f97316" },
-            { label:"ZONES",    value:(tracker.zones||[]).length,                  color:"#38bdf8" },
+            { label:"ASSETS",  value:(tracker.assets||[]).length, color:C.bravo },
+            { label:"ENGAGED", value:(tracker.assets||[]).filter(a=>(a.status||"").toUpperCase()==="ENGAGED").length, color:"#f97316" },
+            { label:"HALTED",  value:(tracker.assets||[]).filter(a=>["HALTED","MAINTENANCE","DISABLED"].includes((a.status||"").toUpperCase())).length, color:C.alpha },
+            { label:"ALERTS",  value:(tracker.alerts||[]).length, color:critCount>0?C.alpha:"#f97316" },
+            { label:"ZONES",   value:(tracker.zones||[]).length,  color:"#38bdf8" },
           ].map(s => (
             <div key={s.label} style={{
-              background:"#060f06", border:`1px solid ${s.color}2a`,
-              borderRadius:3, padding:"2px 8px", textAlign:"center", minWidth:48,
+              background:`${s.color}0d`, border:`1px solid ${s.color}2a`,
+              borderRadius:6, padding:"3px 10px", textAlign:"center", minWidth:52,
             }}>
-              <div style={{ fontSize:15, fontWeight:800, color:s.color, lineHeight:1 }}>{s.value}</div>
-              <div style={{ fontSize:6, color:"#2d4a2d", letterSpacing:0.8 }}>{s.label}</div>
+              <div style={{ fontSize:16, fontWeight:800, color:s.color, lineHeight:1 }}>{s.value}</div>
+              <div style={{ fontSize:7, color:C.muted, letterSpacing:0.8, marginTop:1 }}>{s.label}</div>
             </div>
           ))}
         </div>
 
-        {/* Right: Clock + connection */}
-        <div style={{ display:"flex", alignItems:"center", gap:14 }}>
+        {/* Right: Clock + status */}
+        <div style={{ display:"flex", alignItems:"center", gap:14, flexShrink:0 }}>
           <div style={{ textAlign:"right" }}>
-            <div style={{ fontSize:15, fontWeight:700, color:"#22c55e", letterSpacing:2, fontVariantNumeric:"tabular-nums" }}>{timeStr}</div>
-            <div style={{ fontSize:7, color:"#2d4a2d", letterSpacing:1 }}>{dateStr} IST</div>
+            <div style={{ fontSize:16, fontWeight:700, color:C.text, letterSpacing:2, fontVariantNumeric:"tabular-nums" }}>{timeStr}</div>
+            <div style={{ fontSize:7, color:C.muted, letterSpacing:1 }}>{clock.toLocaleDateString("en-IN",{day:"2-digit",month:"short",year:"numeric"})} IST</div>
           </div>
-          <div style={{ display:"flex", flexDirection:"column", alignItems:"flex-end", gap:3 }}>
-            <div style={{ display:"flex", alignItems:"center", gap:5 }}>
-              <div style={{
-                width:7, height:7, borderRadius:"50%",
-                background: tracker.connected ? "#22c55e" : "#ef4444",
-                boxShadow: tracker.connected ? "0 0 8px #22c55e" : "0 0 8px #ef4444",
-                animation: tracker.connected ? "statusPulse 1.5s ease-in-out infinite" : "none",
-              }}/>
-              <span style={{ fontSize:8, fontWeight:700, color:tracker.connected?"#22c55e":"#ef4444", letterSpacing:1 }}>
-                {tracker.connected ? "UPLINK" : "OFFLINE"}
-              </span>
-            </div>
-            {tracker.connected && (
-              <span style={{ fontSize:7, color:"#1a4a1a" }}>{tracker.tickMs}ms</span>
-            )}
+          <div style={{ display:"flex", alignItems:"center", gap:5 }}>
+            <div style={{
+              width:8, height:8, borderRadius:"50%",
+              background:tracker.connected?C.bravo:C.alpha,
+              boxShadow:tracker.connected?`0 0 8px ${C.bravo}`:`0 0 8px ${C.alpha}`,
+              animation:tracker.connected?"pulse 1.5s ease-in-out infinite":"none",
+            }}/>
+            <span style={{ fontSize:9, fontWeight:700, color:tracker.connected?C.bravo:C.alpha, letterSpacing:1 }}>
+              {tracker.connected?"LIVE":"OFFLINE"}
+            </span>
+            {tracker.connected && <span style={{ fontSize:7, color:C.muted }}>{tracker.tickMs}ms</span>}
           </div>
         </div>
       </div>
 
-      {/* ── ALERT TICKER ────────────────────────────────────── */}
+      {/* ── ALERT TICKER ──────────────────────────────────────── */}
       {critCount > 0 && (
         <div style={{
-          height:26, flexShrink:0,
-          background:"#ef444409", borderBottom:"1px solid #ef444433",
+          height:28, flexShrink:0,
+          background:"rgba(255,51,85,0.07)", borderBottom:"1px solid rgba(255,51,85,0.25)",
           display:"flex", alignItems:"center", overflow:"hidden",
         }}>
           <div style={{
-            flexShrink:0, background:"#ef4444", color:"white",
-            fontSize:8, fontWeight:700, padding:"0 10px", height:"100%",
+            flexShrink:0, background:C.alpha, color:"white",
+            fontSize:8, fontWeight:700, padding:"0 12px", height:"100%",
             display:"flex", alignItems:"center", letterSpacing:1,
           }}>⚠ CRITICAL</div>
-          <div style={{ display:"flex", gap:20, padding:"0 12px", overflow:"hidden" }}>
-            {tracker.alerts
-              .filter(a=>a.severity==="CRITICAL"||a.severity==="EMERGENCY")
-              .slice(0,5)
-              .map(a=>(
-                <span key={a.id} style={{ fontSize:9, color:"#ef4444", whiteSpace:"nowrap", letterSpacing:0.5 }}>
-                  {a.asset_icon} <b>{a.asset_name}</b> — {a.message}
-                </span>
-              ))}
+          <div style={{ display:"flex", gap:24, padding:"0 14px", overflow:"hidden" }}>
+            {tracker.alerts.filter(a=>a.severity==="CRITICAL"||a.severity==="EMERGENCY").slice(0,5).map(a=>(
+              <span key={a.id} style={{ fontSize:10, color:C.alpha, whiteSpace:"nowrap", letterSpacing:0.5 }}>
+                {a.asset_icon} <b>{a.asset_name}</b> — {a.message}
+              </span>
+            ))}
           </div>
         </div>
       )}
 
-      {/* ── MAIN BODY ────────────────────────────────────────── */}
+      {/* ── MAIN BODY ─────────────────────────────────────────── */}
       <div style={{ flex:1, display:"flex", overflow:"hidden" }}>
 
         <Sidebar
@@ -275,7 +627,8 @@ export default function App() {
           user={auth.user}
         />
 
-        <div style={{ flex:1, position:"relative", display:"flex", flexDirection:"column" }}>
+        {/* ── MAP AREA ──────────────────────────────────────── */}
+        <div style={{ flex:1, position:"relative" }}>
           <MapView
             assets={tracker.assets}
             zones={tracker.zones}
@@ -289,174 +642,56 @@ export default function App() {
             activeSector={activeSector}
             fogOfWar={fogOfWar}
             orderMode={orderMode}
-            onMapClick={orderMode ? (latlng) => {
-              setOrderMode(prev => ({
-                ...prev,
-                waypoints: [...prev.waypoints, { lat: latlng.lat, lon: latlng.lng }],
-              }));
+            onMapClick={orderMode ? latlng => {
+              setOrderMode(prev => ({ ...prev, waypoints:[...prev.waypoints,{lat:latlng.lat,lon:latlng.lng}] }));
             } : null}
           />
 
-          {/* ── War Scoreboard HUD (top-left over map) */}
-          {ms && (
-            <div style={{
-              position:"absolute", top:10, left:10, zIndex:500,
-              background:"rgba(1,10,3,.95)", border:"1px solid #22c55e22",
-              borderRadius:4, padding:"8px 12px", minWidth:200,
-              backdropFilter:"blur(6px)", fontFamily:"'Courier New',monospace",
-            }}>
-              {/* Status banner */}
-              <div style={{
-                textAlign:"center", fontSize:8, fontWeight:700, letterSpacing:2,
-                color: ms.status === "BRAVO_WINS" ? "#22c55e" : ms.status === "ALPHA_WINS" ? "#ef4444" : "#f97316",
-                marginBottom:6, padding:"2px 0",
-                background: ms.status !== "ACTIVE" ? (ms.status === "BRAVO_WINS" ? "#22c55e18" : "#ef444418") : "transparent",
-                borderRadius:2,
-              }}>{ms.status === "ACTIVE" ? "◈ BATTLE ACTIVE" : ms.status === "BRAVO_WINS" ? "★ BRAVO WINS" : ms.status === "ALPHA_WINS" ? "✦ ALPHA WINS" : "DRAW"}</div>
+          {/* Match HUD (Valorant-style, top center) */}
+          <MatchHUD ms={ms} bravoLive={bravoLive} alphaLive={alphaLive}/>
 
-              {/* Score bars */}
-              {[
-                { label:"BRAVO", score: ms.bravo_score ?? 0, color:"#22c55e", live: bravoLive, killed: ms.alpha_assets_destroyed ?? 0, zones: ms.zones_controlled_bravo ?? 0 },
-                { label:"ALPHA", score: ms.alpha_score ?? 0, color:"#ef4444", live: alphaLive, killed: ms.bravo_assets_destroyed ?? 0, zones: ms.zones_controlled_alpha ?? 0 },
-              ].map(f => (
-                <div key={f.label} style={{ marginBottom:6 }}>
-                  <div style={{ display:"flex", justifyContent:"space-between", fontSize:9, marginBottom:2 }}>
-                    <span style={{ color:f.color, fontWeight:700 }}>{f.label}</span>
-                    <span style={{ color:f.color }}>{f.score.toLocaleString()} pts</span>
-                  </div>
-                  <div style={{ background:"#0a0f0a", borderRadius:2, height:4, overflow:"hidden" }}>
-                    <div style={{
-                      height:"100%", background:f.color, opacity:0.8,
-                      width:`${Math.min(100, f.score / 50)}%`, transition:"width .5s",
-                    }}/>
-                  </div>
-                  <div style={{ display:"flex", gap:10, fontSize:7.5, color:"#2d5a2d", marginTop:2 }}>
-                    <span>LIVE <b style={{color:f.color}}>{f.live}</b></span>
-                    <span>KILLS <b style={{color:f.color}}>{f.killed}</b></span>
-                    <span>ZONES <b style={{color:f.color}}>{f.zones}</b></span>
-                  </div>
-                </div>
-              ))}
-
-              {/* Fog of war toggle */}
-              <button onClick={()=>setFogOfWar(v=>!v)} style={{
-                marginTop:2, width:"100%", background: fogOfWar ? "#22c55e18" : "transparent",
-                border:`1px solid ${fogOfWar?"#22c55e44":"#162916"}`,
-                color: fogOfWar ? "#22c55e" : "#2d4a2d",
-                borderRadius:2, padding:"3px 0", fontSize:7, fontWeight:700,
-                cursor:"pointer", fontFamily:"inherit", letterSpacing:1,
-              }}>{fogOfWar ? "👁 FOG OF WAR ON" : "👁 FOG OF WAR OFF"}</button>
-            </div>
-          )}
-
-          {/* ── Service HUD (top-right over map) */}
-          <div style={{ position:"absolute", top:10, right:10, zIndex:500, display:"flex", flexDirection:"column", gap:3 }}>
+          {/* Service type counters (top right) */}
+          <div style={{ position:"absolute", top:10, right:10, zIndex:500, display:"flex", flexDirection:"column", gap:4 }}>
             {Object.entries(SVC_ICON).map(([svc, icon]) => {
-              const cnt = tracker.assets.filter(a=>a.service===svc).length;
+              const cnt = (tracker.assets||[]).filter(a=>a.service===svc&&!a.is_destroyed).length;
               if (!cnt) return null;
               return (
                 <div key={svc} style={{
-                  background:"rgba(1,10,3,.92)", border:`1px solid ${SVC_COLOR[svc]}33`,
-                  borderRadius:3, padding:"3px 9px",
-                  display:"flex", alignItems:"center", gap:7,
-                  backdropFilter:"blur(4px)",
+                  background:"rgba(5,8,14,0.94)", border:`1px solid ${SVC_COLOR[svc]}33`,
+                  borderRadius:7, padding:"4px 10px",
+                  display:"flex", alignItems:"center", gap:7, backdropFilter:"blur(6px)",
                 }}>
-                  <span style={{ fontSize:13 }}>{icon}</span>
+                  <span style={{ fontSize:14 }}>{icon}</span>
                   <div>
-                    <div style={{ fontSize:12, fontWeight:700, color:SVC_COLOR[svc] }}>{cnt}</div>
-                    <div style={{ fontSize:6, color:"#2d4a2d", letterSpacing:0.8 }}>{svc.replace("_"," ")}</div>
+                    <div style={{ fontSize:13, fontWeight:800, color:SVC_COLOR[svc], lineHeight:1 }}>{cnt}</div>
+                    <div style={{ fontSize:6, color:C.muted, letterSpacing:0.8 }}>{svc.replace("_"," ")}</div>
                   </div>
                 </div>
               );
             })}
           </div>
 
-          {/* ── Selected asset HUD (bottom-left over map) */}
-          {selectedAsset && (() => {
-            const a = tracker.assets.find(x=>x.id===selectedAsset);
-            if (!a) return null;
-            const isAlpha   = a.faction === "ALPHA";
-            const tCol      = a.is_destroyed ? "#444444"
-                            : isAlpha        ? "#ef4444"
-                            : {GREEN:"#22c55e",YELLOW:"#eab308",ORANGE:"#f97316",RED:"#ef4444"}[a.threat_level]||"#22c55e";
-            const statusUpper = (a.status||"ACTIVE").toUpperCase();
-            const isHalted  = a.is_destroyed || ["HALTED","MAINTENANCE","DISABLED"].includes(statusUpper);
-            const hpPct     = a.max_hp ? Math.round((a.hp ?? a.max_hp) / a.max_hp * 100) : 100;
-            const hpColor   = a.is_destroyed ? "#444" : hpPct > 60 ? "#22c55e" : hpPct > 30 ? "#f97316" : "#ef4444";
-            return (
-              <div style={{
-                position:"absolute", bottom:14, left:14, zIndex:500,
-                background:"rgba(1,10,3,.96)", border:`1px solid ${tCol}`,
-                borderRadius:4, padding:"10px 14px", minWidth:220,
-                backdropFilter:"blur(8px)",
-                boxShadow:`0 0 20px ${tCol}22`,
-              }}>
-                <div style={{ display:"flex", alignItems:"center", gap:8, marginBottom:6 }}>
-                  <span style={{ fontSize:26, filter:`drop-shadow(0 0 6px ${tCol})${a.is_destroyed?" grayscale(1) brightness(.4)":""}` }}>{a.icon}</span>
-                  <div>
-                    <div style={{ fontSize:13, fontWeight:700, color:tCol, letterSpacing:2 }}>{a.callsign}</div>
-                    <div style={{ fontSize:7, color:"#2d5a2d" }}>{a.name}</div>
-                    <div style={{ fontSize:7, color: isAlpha?"#ef4444":"#22c55e", letterSpacing:1 }}>{a.faction ?? "BRAVO"}{a.is_destroyed?" · KIA":""}</div>
-                  </div>
-                  <button onClick={()=>setSelectedAsset(null)} style={{ marginLeft:"auto",background:"transparent",border:"none",color:"#2d4a2d",cursor:"pointer",fontSize:14 }}>✕</button>
-                </div>
-                {/* HP Bar */}
-                <div style={{ marginBottom:6 }}>
-                  <div style={{ display:"flex", justifyContent:"space-between", fontSize:7.5, marginBottom:2 }}>
-                    <span style={{ color:"#2d6a3d" }}>HP</span>
-                    <span style={{ color:hpColor, fontWeight:700 }}>{a.is_destroyed ? "DESTROYED" : `${a.hp ?? "?"}/${a.max_hp ?? "?"}`}</span>
-                  </div>
-                  <div style={{ background:"#0a0f0a", borderRadius:2, height:5, overflow:"hidden" }}>
-                    <div style={{ height:"100%", width:`${a.is_destroyed?0:hpPct}%`, background:hpColor, transition:"width .4s" }}/>
-                  </div>
-                </div>
-                {[
-                  ["SPEED",   `${a.current_speed?.toFixed(1)} km/h`],
-                  ["HEADING", `${a.current_heading?.toFixed(0)}°`],
-                  ["FUEL",    `${a.fuel_pct?.toFixed(0)}%`],
-                  ["STATUS",  statusUpper],
-                  ["ATTACK",  `${a.attack_power ?? 0}dmg / ${a.range_km ?? 0}km`],
-                  ["POS",     `${a.current_lat?.toFixed(4)}°N ${a.current_lon?.toFixed(4)}°E`],
-                ].map(([k,v])=>(
-                  <div key={k} style={{ display:"flex", justifyContent:"space-between", fontSize:9, marginBottom:2 }}>
-                    <span style={{ color:"#2d6a3d" }}>{k}</span>
-                    <span style={{ color: k==="STATUS" && isHalted ? "#ef4444" : "#4ade80", fontWeight:700 }}>{v}</span>
-                  </div>
-                ))}
-                {(a.zoneStatus||[]).filter(z=>z.state==="IN").map(z=>(
-                  <div key={z.zoneId} style={{ marginTop:3, fontSize:8, color:z.zoneType==="HOSTILE"||z.zoneType==="MINEFIELD"?"#ef4444":"#f97316", letterSpacing:0.3 }}>
-                    ▶ IN {z.zoneType}: {z.zoneName}
-                  </div>
-                ))}
-                {!isAlpha && !a.is_destroyed && (
-                  <button
-                    onClick={() => {
-                      setOrderMode({ assetId: a.id, callsign: a.callsign ?? a.name, waypoints: [] });
-                    }}
-                    style={{
-                      marginTop:8, width:"100%",
-                      background: orderMode?.assetId === a.id ? "#facc1522" : "transparent",
-                      border:`1px solid ${orderMode?.assetId === a.id ? "#facc15" : "#22c55e44"}`,
-                      color: orderMode?.assetId === a.id ? "#facc15" : "#22c55e",
-                      borderRadius:2, padding:"4px 0", fontSize:7.5, fontWeight:700,
-                      cursor:"pointer", fontFamily:"'Courier New',monospace", letterSpacing:1.5,
-                    }}
-                  >{orderMode?.assetId === a.id ? "🎯 ISSUING ORDERS..." : "▶ ISSUE MOVEMENT ORDER"}</button>
-                )}
-              </div>
-            );
-          })()}
+          {/* Fog of War toggle (bottom-right of map above command bar) */}
+          <div style={{ position:"absolute", bottom:70, right:10, zIndex:500 }}>
+            <button onClick={()=>setFogOfWar(v=>!v)} style={{
+              background:fogOfWar?`${C.bravo}14`:"rgba(255,255,255,0.04)",
+              border:`1px solid ${fogOfWar?`${C.bravo}55`:"rgba(255,255,255,0.1)"}`,
+              color:fogOfWar?C.bravo:C.muted, borderRadius:7,
+              padding:"7px 14px", fontSize:9, fontWeight:700,
+              cursor:"pointer", fontFamily:"'Courier New',monospace", letterSpacing:1,
+            }}>{fogOfWar?"👁 FOG ON":"🌐 FOG OFF"}</button>
+          </div>
 
-          {/* ── Path result HUD */}
+          {/* Path result HUD */}
           {tracker.pathResult && (
             <div style={{
-              position:"absolute", bottom:14, right:14, zIndex:500,
-              background:"rgba(1,10,3,.97)", border:"1px solid #facc1533",
-              borderRadius:4, padding:"10px 14px",
-              backdropFilter:"blur(8px)", minWidth:170,
+              position:"absolute", bottom:70, left:10, zIndex:500,
+              background:"rgba(5,8,14,0.97)", border:`1px solid ${C.gold}33`,
+              borderRadius:8, padding:"12px 16px", backdropFilter:"blur(8px)",
+              minWidth:180, fontFamily:"'Courier New',monospace",
             }}>
-              <div style={{ fontSize:7.5, fontWeight:700, color:"#facc15", letterSpacing:2, marginBottom:6 }}>
-                PATH · {tracker.pathResult.algo ?? tracker.pathResult.algorithm}
+              <div style={{ fontSize:9, fontWeight:700, color:C.gold, letterSpacing:2, marginBottom:8 }}>
+                PATH · {tracker.pathResult.algo??tracker.pathResult.algorithm}
               </div>
               {[
                 ["DISTANCE",  `${tracker.pathResult.distance_km?.toFixed(2)} km`],
@@ -464,216 +699,77 @@ export default function App() {
                 ["NODES",     tracker.pathResult.nodes_visited],
                 ["COMPUTE",   `${tracker.pathResult.compute_ms?.toFixed(1)} ms`],
               ].map(([k,v])=>(
-                <div key={k} style={{ display:"flex", justifyContent:"space-between", fontSize:9, marginBottom:2 }}>
-                  <span style={{ color:"#2d5a2d" }}>{k}</span>
-                  <span style={{ color:"#facc15", fontWeight:700 }}>{v}</span>
+                <div key={k} style={{ display:"flex", justifyContent:"space-between", fontSize:9, marginBottom:3 }}>
+                  <span style={{ color:C.muted }}>{k}</span>
+                  <span style={{ color:C.gold, fontWeight:700 }}>{v}</span>
                 </div>
               ))}
               <button onClick={()=>tracker.setPathResult(null)} style={{
                 marginTop:6, width:"100%", background:"transparent",
-                border:"1px solid #162916", color:"#1a3a1a",
-                borderRadius:2, padding:"3px", fontSize:7.5,
+                border:"1px solid rgba(255,255,255,0.08)", color:C.muted,
+                borderRadius:5, padding:"4px", fontSize:8,
                 cursor:"pointer", fontFamily:"inherit",
               }}>CLEAR PATH</button>
             </div>
           )}
 
-          {/* ── Order Mode HUD ──────────────────────────────── */}
-          {orderMode && (
-            <div style={{
-              position:"absolute", top:"50%", left:"50%", transform:"translate(-50%,-50%)",
-              zIndex:600, pointerEvents:"none",
-              fontFamily:"'Courier New',monospace", fontSize:11, color:"#facc15",
-              textAlign:"center", letterSpacing:1,
-              textShadow:"0 0 12px #facc15",
-            }}>
-              <div style={{ fontSize:9, opacity:.8 }}>CLICK MAP TO ADD WAYPOINTS</div>
-              <div style={{ fontSize:8, color:"#4ade80", marginTop:3 }}>
-                {orderMode.waypoints.length} waypoint{orderMode.waypoints.length !== 1 ? "s" : ""} set
-              </div>
-            </div>
-          )}
-          {orderMode && (
-            <div style={{
-              position:"absolute", top:10, left:"50%", transform:"translateX(-50%)",
-              zIndex:600, background:"rgba(1,10,3,.97)", border:"1px solid #facc1566",
-              borderRadius:4, padding:"8px 16px", display:"flex", alignItems:"center", gap:12,
-              fontFamily:"'Courier New',monospace", boxShadow:"0 0 20px #facc1533",
-            }}>
-              <span style={{ fontSize:12 }}>🎯</span>
-              <div>
-                <div style={{ fontSize:9, color:"#facc15", fontWeight:700, letterSpacing:1.5 }}>
-                  ORDER MODE — {orderMode.callsign}
-                </div>
-                <div style={{ fontSize:7.5, color:"#2d5a2d" }}>
-                  Click map to add waypoints · {orderMode.waypoints.length} set
-                </div>
-              </div>
-              <button
-                onClick={async () => {
-                  if (orderMode.waypoints.length === 0) { setOrderMode(null); return; }
-                  try {
-                    await tracker.issueOrder(orderMode.assetId, orderMode.waypoints);
-                    setOrderMode(null);
-                  } catch(e) { console.error(e); }
-                }}
-                style={{
-                  background:"#22c55e22", border:"1px solid #22c55e66", color:"#22c55e",
-                  borderRadius:2, padding:"4px 12px", fontSize:8, fontWeight:700,
-                  cursor:"pointer", fontFamily:"inherit", letterSpacing:1,
-                }}>CONFIRM ✓</button>
-              <button
-                onClick={() => setOrderMode(null)}
-                style={{
-                  background:"transparent", border:"1px solid #ef444466", color:"#ef4444",
-                  borderRadius:2, padding:"4px 10px", fontSize:8, fontWeight:700,
-                  cursor:"pointer", fontFamily:"inherit", letterSpacing:1,
-                }}>CANCEL ✕</button>
-            </div>
-          )}
+          {/* Order mode overlay */}
+          <OrderOverlay
+            orderMode={orderMode}
+            onConfirm={async () => {
+              if (!orderMode?.waypoints?.length) { setOrderMode(null); return; }
+              try { await tracker.issueOrder(orderMode.assetId, orderMode.waypoints); setOrderMode(null); addToast("✓ Orders issued — asset re-routing", true); }
+              catch(e) { addToast("Order failed: "+e.message, false); }
+            }}
+            onCancel={() => setOrderMode(null)}
+          />
 
-          {/* ── Command Console ─────────────────────────────── */}
-          <CommandConsole onExec={handleExecCommand}/>
+          {/* Selected asset card */}
+          <AssetCard
+            asset={selectedA}
+            onClose={() => setSelectedAsset(null)}
+            onOrder={() => selectedA && setOrderMode({ assetId:selectedA.id, callsign:selectedA.callsign??selectedA.name, waypoints:[] })}
+            orderMode={orderMode?.assetId===selectedA?.id ? orderMode : null}
+          />
+
+          {/* Toast notifications */}
+          <ToastLayer toasts={toasts}/>
+
+          {/* Game Command Bar */}
+          <GameCommandBar
+            selectedAsset={selectedAsset}
+            assets={tracker.assets||[]}
+            onExec={handleExecCommand}
+            clearAlerts={tracker.clearAlerts}
+            fogOfWar={fogOfWar}
+            setFogOfWar={setFogOfWar}
+            orderMode={orderMode}
+            setOrderMode={setOrderMode}
+          />
         </div>
       </div>
 
-      {/* ── End-Game Overlay ─────────────────────────────── */}
-      {ms && ms.status !== "ACTIVE" && !matchDismissed && (() => {
-        const bravoWins = ms.status === "BRAVO_WINS";
-        const accentCol = bravoWins ? "#22c55e" : "#ef4444";
-        const bgGlow    = bravoWins ? "#22c55e0d" : "#ef44440d";
-        const title     = bravoWins ? "★ BRAVO VICTORY" : "✦ ALPHA VICTORY";
-        const subtitle  = bravoWins ? "INDIA PREVAILS — MISSION ACCOMPLISHED" : "ALPHA FORCES VICTORIOUS — STAND DOWN";
-        const bScore    = ms.bravo_score ?? 0;
-        const aScore    = ms.alpha_score ?? 0;
-        const bKills    = ms.alpha_assets_destroyed ?? 0;
-        const aKills    = ms.bravo_assets_destroyed ?? 0;
-        const bZones    = ms.zones_controlled_bravo ?? 0;
-        const aZones    = ms.zones_controlled_alpha ?? 0;
-        return (
-          <div style={{
-            position:"fixed", inset:0, zIndex:900,
-            background:"rgba(0,0,0,.88)", backdropFilter:"blur(4px)",
-            display:"flex", alignItems:"center", justifyContent:"center",
-            fontFamily:"'Courier New',monospace",
-          }}>
-            <div style={{
-              background:`linear-gradient(160deg,#050e05,${bgGlow},#050e05)`,
-              border:`1px solid ${accentCol}55`,
-              borderRadius:6, padding:"36px 48px", maxWidth:520, width:"90%",
-              boxShadow:`0 0 80px ${accentCol}22, 0 0 200px ${accentCol}11`,
-              textAlign:"center",
-            }}>
-              {/* Crest */}
-              <div style={{ fontSize:44, marginBottom:10, filter:`drop-shadow(0 0 16px ${accentCol})` }}>
-                {bravoWins ? "🛡️" : "⚔️"}
-              </div>
-
-              {/* Title */}
-              <div style={{
-                fontSize:22, fontWeight:800, color:accentCol,
-                letterSpacing:4, marginBottom:4,
-                textShadow:`0 0 20px ${accentCol}`,
-              }}>{title}</div>
-              <div style={{ fontSize:8, color:"#2d5a2d", letterSpacing:3, marginBottom:28 }}>{subtitle}</div>
-
-              {/* Score comparison */}
-              <div style={{
-                display:"grid", gridTemplateColumns:"1fr auto 1fr",
-                gap:8, alignItems:"center", marginBottom:24,
-              }}>
-                {/* BRAVO column */}
-                <div style={{
-                  background: bravoWins ? "#22c55e14" : "#0a0f0a",
-                  border:`1px solid ${bravoWins?"#22c55e44":"#162916"}`,
-                  borderRadius:4, padding:"12px 8px",
-                }}>
-                  <div style={{ fontSize:8, color:"#22c55e", letterSpacing:2, marginBottom:6 }}>BRAVO</div>
-                  <div style={{ fontSize:28, fontWeight:800, color:"#22c55e", marginBottom:4 }}>{bScore.toLocaleString()}</div>
-                  <div style={{ fontSize:7, color:"#2d5a2d" }}>POINTS</div>
-                  <div style={{ marginTop:8, display:"flex", flexDirection:"column", gap:2 }}>
-                    {[["KILLS", bKills], ["ZONES", bZones], ["LIVE", bravoLive]].map(([k,v])=>(
-                      <div key={k} style={{ display:"flex", justifyContent:"space-between", fontSize:8 }}>
-                        <span style={{ color:"#2d5a2d" }}>{k}</span>
-                        <span style={{ color:"#22c55e", fontWeight:700 }}>{v}</span>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-
-                {/* VS */}
-                <div style={{ fontSize:12, color:"#162916", fontWeight:700 }}>VS</div>
-
-                {/* ALPHA column */}
-                <div style={{
-                  background: !bravoWins ? "#ef444414" : "#0a0f0a",
-                  border:`1px solid ${!bravoWins?"#ef444444":"#162916"}`,
-                  borderRadius:4, padding:"12px 8px",
-                }}>
-                  <div style={{ fontSize:8, color:"#ef4444", letterSpacing:2, marginBottom:6 }}>ALPHA</div>
-                  <div style={{ fontSize:28, fontWeight:800, color:"#ef4444", marginBottom:4 }}>{aScore.toLocaleString()}</div>
-                  <div style={{ fontSize:7, color:"#5a2d2d" }}>POINTS</div>
-                  <div style={{ marginTop:8, display:"flex", flexDirection:"column", gap:2 }}>
-                    {[["KILLS", aKills], ["ZONES", aZones], ["LIVE", alphaLive]].map(([k,v])=>(
-                      <div key={k} style={{ display:"flex", justifyContent:"space-between", fontSize:8 }}>
-                        <span style={{ color:"#5a2d2d" }}>{k}</span>
-                        <span style={{ color:"#ef4444", fontWeight:700 }}>{v}</span>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              </div>
-
-              {/* Winner bar */}
-              <div style={{
-                background:`${accentCol}18`, border:`1px solid ${accentCol}44`,
-                borderRadius:3, padding:"8px 0", marginBottom:20, fontSize:9,
-                color:accentCol, fontWeight:700, letterSpacing:2,
-              }}>
-                {bravoWins
-                  ? `BRAVO MARGIN: +${(bScore-aScore).toLocaleString()} pts  ·  ${bKills} ENEMY ELIMINATED`
-                  : `ALPHA MARGIN: +${(aScore-bScore).toLocaleString()} pts  ·  ${aKills} BRAVO ELIMINATED`}
-              </div>
-
-              {/* Buttons */}
-              <div style={{ display:"flex", gap:10, justifyContent:"center" }}>
-                <button
-                  onClick={async () => {
-                    setMatchDismissed(false);
-                    await tracker.seedAssets();
-                  }}
-                  style={{
-                    background:"#22c55e22", border:"1px solid #22c55e66",
-                    color:"#22c55e", borderRadius:3, padding:"8px 24px",
-                    fontSize:9, fontWeight:700, cursor:"pointer",
-                    fontFamily:"'Courier New',monospace", letterSpacing:1.5,
-                  }}>⟳ RESET MATCH</button>
-                <button
-                  onClick={() => setMatchDismissed(true)}
-                  style={{
-                    background:"transparent", border:"1px solid #162916",
-                    color:"#2d4a2d", borderRadius:3, padding:"8px 18px",
-                    fontSize:9, cursor:"pointer",
-                    fontFamily:"'Courier New',monospace", letterSpacing:1,
-                  }}>INSPECT MAP</button>
-              </div>
-
-              <div style={{ marginTop:14, fontSize:7, color:"#162916", letterSpacing:1 }}>
-                RESET MATCH will re-seed all forces and restart the simulation
-              </div>
-            </div>
-          </div>
-        );
-      })()}
+      {/* End-game overlay */}
+      {ms && ms.status !== "ACTIVE" && !matchDismissed && (
+        <EndGameOverlay
+          ms={ms}
+          bravoLive={bravoLive}
+          alphaLive={alphaLive}
+          onReset={async () => { setMatchDismissed(false); await tracker.seedAssets(); addToast("⟳ Match reset — armies re-seeded", true); }}
+          onDismiss={() => setMatchDismissed(true)}
+        />
+      )}
 
       <style>{`
-        @keyframes statusPulse { 0%,100%{opacity:1} 50%{opacity:.3} }
+        @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:.3} }
         * { box-sizing:border-box; }
         ::-webkit-scrollbar { width:3px }
-        ::-webkit-scrollbar-track { background:#010a03 }
-        ::-webkit-scrollbar-thumb { background:#162916; border-radius:2px }
-        select option { background:#010a03; color:#4ade80 }
+        ::-webkit-scrollbar-track { background:transparent }
+        ::-webkit-scrollbar-thumb { background:rgba(255,255,255,0.12); border-radius:2px }
+        select option { background:#060910; color:#e2e8f0 }
+        input::placeholder { color:#475569; }
         input[type=number]::-webkit-inner-spin-button { -webkit-appearance:none }
+        button:hover:not(:disabled) { filter:brightness(1.15); }
       `}</style>
     </div>
   );

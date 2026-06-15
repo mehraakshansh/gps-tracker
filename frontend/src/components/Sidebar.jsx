@@ -3,12 +3,12 @@ import ConvoyTab from "./ConvoyTab";
 
 // ── Design tokens ──────────────────────────────────────────────
 const T = {
-  bg0:"#010a03", bg1:"#060f06", bg2:"#091509", bg3:"#0d1e0d",
-  green:"#4ade80", g2:"#22c55e", g3:"#16a34a",
-  red:"#ef4444", orange:"#f97316", yellow:"#facc15",
-  blue:"#38bdf8", purple:"#a855f7",
-  muted:"#2d5a2d", dim:"#162916", faint:"#0c160c",
-  textSub:"#3d7a3d",
+  bg0:"#060910", bg1:"#080b14", bg2:"#0c1020", bg3:"#10152a",
+  green:"#00e5a0", g2:"#00e5a0", g3:"#00c48a",
+  red:"#ff3355", orange:"#f97316", yellow:"#fbbf24",
+  blue:"#38bdf8", purple:"#a78bfa",
+  muted:"#475569", dim:"rgba(255,255,255,0.08)", faint:"rgba(255,255,255,0.04)",
+  textSub:"#64748b",
 };
 
 const SEV  = { CRITICAL:"#ef4444", WARNING:"#f97316", INFO:"#22c55e", EMERGENCY:"#a855f7" };
@@ -75,20 +75,21 @@ const ALGOS = [
 ];
 
 const inp = {
-  width:"100%", background:T.bg0, color:T.green,
-  border:`1px solid ${T.dim}`, borderRadius:3, padding:"6px 9px",
+  width:"100%", background:"rgba(255,255,255,0.04)", color:"#e2e8f0",
+  border:`1px solid rgba(255,255,255,0.1)`, borderRadius:6, padding:"7px 10px",
   fontSize:11, fontFamily:"'Courier New',monospace", outline:"none",
-  display:"block", marginTop:3,
+  display:"block", marginTop:4,
 };
 
 const Btn = ({ children, onClick, color=T.g2, disabled=false, full=false, small=false, style:s={} }) => (
   <button onClick={onClick} disabled={disabled} style={{
-    background:"transparent", border:`1px solid ${disabled?"#2d3a2d":color}`,
-    color:disabled?"#2d3a2d":color, borderRadius:3,
-    padding: small?"2px 8px":"6px 14px",
+    background:disabled?"transparent":`${color}12`,
+    border:`1px solid ${disabled?"rgba(255,255,255,0.06)":color+"44"}`,
+    color:disabled?"rgba(255,255,255,0.18)":color,
+    borderRadius:6, padding: small?"3px 10px":"7px 16px",
     fontSize:small?9:11, fontWeight:700, cursor:disabled?"not-allowed":"pointer",
     fontFamily:"'Courier New',monospace", letterSpacing:1,
-    width:full?"100%":undefined, transition:"all .15s",
+    width:full?"100%":undefined, transition:"all .13s",
     ...s,
   }}>{children}</button>
 );
@@ -700,7 +701,7 @@ export default function Sidebar(props) {
   return (
     <div style={{
       width:300, flexShrink:0, display:"flex", flexDirection:"column",
-      background:T.bg1, borderRight:`1px solid ${T.dim}`,
+      background:T.bg1, borderRight:"1px solid rgba(255,255,255,0.07)",
       fontFamily:"'Courier New',monospace",
     }}>
       {/* ── Sector/Command selector */}
@@ -727,20 +728,24 @@ export default function Sidebar(props) {
       )}
 
       {/* ── Tab bar */}
-      <div style={{ display:"flex", borderBottom:`1px solid ${T.dim}`, background:T.bg0, flexShrink:0 }}>
+      <div style={{ display:"flex", borderBottom:"1px solid rgba(255,255,255,0.07)", background:T.bg0, flexShrink:0 }}>
         {TABS.map(t => {
           const badge = t.id==="ALERTS" && critCount > 0 ? critCount : null;
           const active = tab===t.id;
           return (
             <button key={t.id} onClick={()=>setTab(t.id)} style={{
-              flex:1, padding:"7px 1px", background:"transparent",
+              flex:1, padding:"8px 2px", background:active?`${T.g2}0c`:"transparent",
               border:"none", borderBottom:`2px solid ${active?T.g2:"transparent"}`,
-              cursor:"pointer", fontFamily:"inherit", transition:"all .15s",
+              cursor:"pointer", fontFamily:"inherit", transition:"all .15s", position:"relative",
             }}>
-              <div style={{ fontSize:12, marginBottom:1 }}>{t.icon}</div>
+              <div style={{ fontSize:13, marginBottom:2 }}>{t.icon}</div>
               <div style={{ fontSize:7, fontWeight:700, color:active?T.g2:T.muted, letterSpacing:0.3 }}>{t.label}</div>
               {badge && (
-                <div style={{ display:"inline-block",background:T.red,color:"white",borderRadius:8,padding:"0 4px",fontSize:7,fontWeight:700,marginTop:1 }}>{badge}</div>
+                <div style={{
+                  position:"absolute", top:4, right:4,
+                  background:T.red, color:"white", borderRadius:8, padding:"0 5px",
+                  fontSize:7, fontWeight:700, minWidth:14, textAlign:"center",
+                }}>{badge}</div>
               )}
             </button>
           );
@@ -760,23 +765,28 @@ export default function Sidebar(props) {
 
       {/* ── Status footer */}
       <div style={{
-        padding:"4px 10px", borderTop:`1px solid ${T.dim}`,
+        padding:"6px 10px", borderTop:"1px solid rgba(255,255,255,0.07)",
         display:"flex", justifyContent:"space-between", alignItems:"center",
         background:T.bg0, flexShrink:0,
       }}>
-        <span style={{ fontSize:7,color:T.textSub,letterSpacing:1,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",maxWidth:140 }} title={user?.email}>
-          {user?.email || "BRCS v4.0"}
+        <span style={{ fontSize:8,color:T.textSub,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",maxWidth:140 }} title={user?.email}>
+          {user?.email || "BRCS v5.0"}
         </span>
-        {onSignOut && <button onClick={onSignOut} title="Sign out" style={{ background:"transparent",border:`1px solid ${T.dim}`,color:T.muted,cursor:"pointer",borderRadius:2,padding:"1px 6px",fontSize:7,fontFamily:"inherit",letterSpacing:1 }}>LOGOUT</button>}
-        <div style={{ display:"flex",alignItems:"center",gap:4 }}>
-          <div style={{ width:5,height:5,borderRadius:"50%",
-            background:connected?T.g2:T.red,
-            boxShadow:connected?`0 0 5px ${T.g2}`:"none" }}/>
-          <span style={{ fontSize:7,color:connected?T.g2:T.red }}>{connected?"LIVE":"OFFLINE"}</span>
+        {onSignOut && <button onClick={onSignOut} style={{
+          background:"rgba(255,51,85,0.1)", border:"1px solid rgba(255,51,85,0.3)",
+          color:"#ff3355", cursor:"pointer", borderRadius:5, padding:"2px 8px",
+          fontSize:8, fontFamily:"inherit", letterSpacing:0.5,
+        }}>LOGOUT</button>}
+        <div style={{ display:"flex",alignItems:"center",gap:5 }}>
+          <div style={{ width:6,height:6,borderRadius:"50%",
+            background:connected?T.g2:"#ff3355",
+            boxShadow:connected?`0 0 6px ${T.g2}`:"none",
+            animation:connected?"pulse 1.5s ease-in-out infinite":"none" }}/>
+          <span style={{ fontSize:8,color:connected?T.g2:"#ff3355",fontWeight:700 }}>{connected?"LIVE":"OFFLINE"}</span>
         </div>
       </div>
 
-      <style>{`select option{background:#010a03;color:#4ade80;}`}</style>
+      <style>{`select option{background:#060910;color:#e2e8f0;} @keyframes pulse{0%,100%{opacity:1}50%{opacity:.3}}`}</style>
     </div>
   );
 }
