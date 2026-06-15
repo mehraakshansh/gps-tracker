@@ -20,6 +20,14 @@ const ZONE_CFG = {
 
 const THREAT_GLOW = { GREEN:"#22c55e", YELLOW:"#eab308", ORANGE:"#f97316", RED:"#ef4444" };
 
+// Haversine for fog-of-war (returns metres)
+function havFow(lat1, lon1, lat2, lon2) {
+  const R = 6371000, toR = d => d * Math.PI / 180;
+  const dLat = toR(lat2 - lat1), dLon = toR(lon2 - lon1);
+  const a = Math.sin(dLat/2)**2 + Math.cos(toR(lat1))*Math.cos(toR(lat2))*Math.sin(dLon/2)**2;
+  return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
+}
+
 function classifyAsset(asset) {
   const t = ((asset.asset_type || "") + (asset.name || "")).toUpperCase();
   const svc = (asset.service || "").toUpperCase();
@@ -34,11 +42,19 @@ function classifyAsset(asset) {
 }
 
 function makeAssetIcon(asset, selected = false) {
-  const glow = THREAT_GLOW[asset.threat_level] || "#22c55e";
+  const faction = asset.faction ?? "BRAVO";
+  const isAlpha = faction === "ALPHA";
+  const isDestroyed = asset.is_destroyed === true;
+
+  // Faction-aware colour: ALPHA=red, BRAVO=green (threat glow for BRAVO only)
+  const glow = isDestroyed ? "#444444"
+             : isAlpha     ? "#ef4444"
+             : THREAT_GLOW[asset.threat_level] || "#22c55e";
+
   const size = selected ? 28 : 22;
   const status = (asset.status || "ACTIVE").toUpperCase();
-  const isHalted = ["HALTED","MAINTENANCE","DISABLED","DESTROYED"].includes(status);
-  const isEngaged = status === "ENGAGED";
+  const isHalted = isDestroyed || ["HALTED","MAINTENANCE","DISABLED","DESTROYED"].includes(status);
+  const isEngaged = !isDestroyed && status === "ENGAGED";
   const cls = classifyAsset(asset);
   const heading = (asset.current_heading || 0).toFixed(0);
 
@@ -63,7 +79,17 @@ function makeAssetIcon(asset, selected = false) {
         border-bottom:9px solid ${arrowColor};opacity:0.85;pointer-events:none;"></div>`
     : "";
 
-  const haltHtml = isHalted
+  const destroyedHtml = isDestroyed
+    ? `<div style="position:absolute;top:-10px;left:50%;transform:translateX(-50%);
+        background:#1a0000cc;color:#ef4444;font-size:7px;font-weight:900;
+        padding:1px 4px;border-radius:2px;letter-spacing:1px;white-space:nowrap;pointer-events:none;">KIA</div>`
+    : "";
+  const factionBadge = !isDestroyed
+    ? `<div style="position:absolute;bottom:-1px;right:-4px;font-size:6px;font-weight:900;
+        color:${isAlpha?"#ef4444":"#22c55e"};text-shadow:0 0 4px ${isAlpha?"#ef4444":"#22c55e"};
+        pointer-events:none;">${isAlpha?"▲":"●"}</div>`
+    : "";
+  const haltHtml = !isDestroyed && isHalted
     ? `<div style="position:absolute;top:-10px;left:50%;transform:translateX(-50%);
         background:#ef4444cc;color:#fff;font-size:6px;font-weight:900;
         padding:1px 4px;border-radius:2px;letter-spacing:1px;
@@ -88,10 +114,10 @@ function makeAssetIcon(asset, selected = false) {
     iconSize:   [size + 16, size + 20],
     iconAnchor: [(size + 16) / 2, (size + 20) / 2],
     html: `<div style="position:relative;display:flex;flex-direction:column;align-items:center;gap:0px;">
-      ${haltHtml}${engagedHtml}${arrowHtml}
+      ${destroyedHtml}${haltHtml}${engagedHtml}${arrowHtml}${factionBadge}
       <div style="
         font-size:${size}px;
-        filter:drop-shadow(0 0 ${selected ? 10 : 5}px ${glow})${isHalted ? " grayscale(75%)" : ""};
+        filter:drop-shadow(0 0 ${selected ? 10 : 5}px ${glow})${(isHalted||isDestroyed) ? " grayscale(80%) brightness(0.5)" : ""};
         animation:${iconAnim};
         transform-origin:center;
         transform:${iconTransform};
@@ -186,7 +212,7 @@ const SECTORS = [
   { id:"SIACHEN",   lat:35.40, lon:76.90, zoom:9,  label:"Siachen Glacier" },
 ];
 
-export default function MapView({ assets, zones, pathResult, simResult, simObjective, convoys, selectedConvoyId, selectedAssetId, onAssetClick, activeSector }) {
+export default function MapView({ assets, zones, pathResult, simResult, simObjective, convoys, selectedConvoyId, selectedAssetId, onAssetClick, activeSector, fogOfWar = true }) {
   const divRef         = useRef(null);
   const mapRef         = useRef(null);
   const markersRef     = useRef({});
@@ -233,17 +259,28 @@ export default function MapView({ assets, zones, pathResult, simResult, simObjec
     zoneLayRef.current = {};
     (zones || []).forEach(z => {
       const cfg = ZONE_CFG[z.zone_type] || ZONE_CFG.FOB;
+      // Override colour if zone is captured
+      const captureColor = z.controlled_by === "BRAVO" ? "#22c55e"
+                         : z.controlled_by === "ALPHA" ? "#ef4444"
+                         : null;
+      const borderColor = captureColor ?? cfg.color;
+      const captureWeight = captureColor ? 2.5 : 1.5;
+      const captureLabel = captureColor
+        ? `${z.controlled_by === "BRAVO" ? "▣" : "▤"} ${z.name} [${z.controlled_by}]`
+        : `${cfg.label}: ${z.name}`;
+
       const circle = L.circle([z.center_lat, z.center_lon], {
-        radius: z.radius_meters, color: cfg.color, weight: 1.5,
-        dashArray: cfg.dash, fillColor: cfg.color, fillOpacity: cfg.fill,
+        radius: z.radius_meters, color: borderColor, weight: captureWeight,
+        dashArray: captureColor ? null : cfg.dash,
+        fillColor: borderColor, fillOpacity: captureColor ? 0.12 : cfg.fill,
       }).addTo(m);
       const lbl = L.divIcon({
         className: "",
-        html: `<div style="background:rgba(2,12,4,.85);border:1px solid ${cfg.color};
-          color:${cfg.color};padding:2px 6px;border-radius:2px;
+        html: `<div style="background:rgba(2,12,4,.85);border:1px solid ${borderColor};
+          color:${borderColor};padding:2px 6px;border-radius:2px;
           font-family:'Courier New',monospace;font-size:9px;font-weight:700;
-          letter-spacing:1px;white-space:nowrap;pointer-events:none;opacity:.85;">
-          ${cfg.label}: ${z.name}</div>`,
+          letter-spacing:1px;white-space:nowrap;pointer-events:none;opacity:.9;">
+          ${captureLabel}</div>`,
         iconAnchor: [60, 10],
       });
       L.marker([z.center_lat, z.center_lon], { icon: lbl, interactive: false }).addTo(m);
@@ -254,8 +291,33 @@ export default function MapView({ assets, zones, pathResult, simResult, simObjec
   // Render assets + trails
   useEffect(() => {
     const m = mapRef.current; if (!m) return;
+
+    // Fog of war: compute which ALPHA units are within detection radius of any BRAVO unit
+    const bravoLive = (assets || []).filter(a => a.faction !== "ALPHA" && !a.is_destroyed && a.current_lat != null);
+    const visibleAlphaIds = new Set();
+    if (fogOfWar) {
+      (assets || []).filter(a => a.faction === "ALPHA" && a.current_lat != null).forEach(alpha => {
+        for (const bravo of bravoLive) {
+          const dist = havFow(bravo.current_lat, bravo.current_lon, alpha.current_lat, alpha.current_lon);
+          if (dist <= (bravo.detection_radius_km ?? 10) * 1000) { visibleAlphaIds.add(alpha.id); break; }
+        }
+      });
+    }
+
     (assets || []).forEach(a => {
       if (!a.current_lat) return;
+      // Hide ALPHA units outside detection radius (fog of war)
+      if (fogOfWar && a.faction === "ALPHA" && !visibleAlphaIds.has(a.id)) {
+        if (markersRef.current[a.id]) {
+          try { m.removeLayer(markersRef.current[a.id]); } catch(_){}
+          delete markersRef.current[a.id];
+        }
+        if (trailsRef.current[a.id]) {
+          try { m.removeLayer(trailsRef.current[a.id]); } catch(_){}
+          delete trailsRef.current[a.id];
+        }
+        return;
+      }
       const pos = [a.current_lat, a.current_lon];
       const sel = a.id === selectedAssetId;
       const glow = THREAT_GLOW[a.threat_level] || "#22c55e";
@@ -266,34 +328,41 @@ export default function MapView({ assets, zones, pathResult, simResult, simObjec
         const mk = L.marker(pos, { icon: makeAssetIcon(a, sel) })
           .addTo(m)
           .on("click", () => onAssetClick?.(a.id));
+        const factionColor = a.faction === "ALPHA" ? "#ef4444" : "#22c55e";
+        const hpPct = a.max_hp ? Math.round((a.hp ?? a.max_hp) / a.max_hp * 100) : 100;
+        const hpColor = hpPct > 60 ? "#22c55e" : hpPct > 30 ? "#f97316" : "#ef4444";
         mk.bindPopup(`
-          <div style="background:#071207;border:1px solid #1a4a1a;padding:10px 14px;min-width:210px;font-family:'Courier New',monospace;">
-            <div style="text-align:center;font-size:26px;margin-bottom:4px;">${a.icon}</div>
-            <div style="font-size:13px;font-weight:700;color:#22c55e;text-align:center;letter-spacing:2px;">${a.callsign}</div>
-            <div style="color:#2d5a2d;font-size:9px;text-align:center;margin-bottom:8px;">${a.name}</div>
+          <div style="background:#071207;border:1px solid ${factionColor}44;padding:10px 14px;min-width:210px;font-family:'Courier New',monospace;">
+            <div style="text-align:center;font-size:26px;margin-bottom:4px;${a.is_destroyed?"filter:grayscale(1) brightness(.4)":""}">${a.icon}</div>
+            <div style="font-size:13px;font-weight:700;color:${factionColor};text-align:center;letter-spacing:2px;">${a.callsign}</div>
+            <div style="color:#2d5a2d;font-size:9px;text-align:center;margin-bottom:4px;">${a.name}</div>
+            <div style="margin:4px 0 6px;background:#0a0a0a;border-radius:2px;height:5px;overflow:hidden;">
+              <div style="height:100%;width:${a.is_destroyed?0:hpPct}%;background:${hpColor};transition:width .3s;"></div>
+            </div>
             <div style="display:grid;grid-template-columns:1fr 1fr;gap:3px;font-size:10px;">
+              <span style="color:#2d6a3d">FACTION</span><span style="color:${factionColor};font-weight:700">${a.faction ?? "BRAVO"}</span>
+              <span style="color:#2d6a3d">HP</span><span style="color:${hpColor}">${a.is_destroyed?"DESTROYED":`${a.hp ?? "?"}/${a.max_hp ?? "?"}`}</span>
               <span style="color:#2d6a3d">TYPE</span><span style="color:#4ade80">${a.asset_type || "—"}</span>
               <span style="color:#2d6a3d">STATUS</span><span style="color:${a.status==="HALTED"?"#ef4444":a.status==="ENGAGED"?"#f97316":"#4ade80"}">${a.status}</span>
-              <span style="color:#2d6a3d">SERVICE</span><span style="color:#4ade80">${(a.service||"").replace("_"," ")}</span>
               <span style="color:#2d6a3d">SPEED</span><span style="color:#4ade80">${a.current_speed?.toFixed(0) || 0} km/h</span>
               <span style="color:#2d6a3d">HEADING</span><span style="color:#4ade80">${a.current_heading?.toFixed(0) || 0}°</span>
               <span style="color:#2d6a3d">FUEL</span><span style="color:${(a.fuel_pct||100)<20?"#ef4444":"#4ade80"}">${a.fuel_pct?.toFixed(0) || 100}%</span>
-              <span style="color:#2d6a3d">AMMO</span><span style="color:${(a.ammo_pct||100)<20?"#ef4444":"#4ade80"}">${a.ammo_pct?.toFixed(0) || 100}%</span>
-              <span style="color:#2d6a3d">THREAT</span><span style="color:${glow}">${a.threat_level}</span>
+              <span style="color:#2d6a3d">ATTACK</span><span style="color:#f97316">${a.attack_power ?? 0} / ${a.range_km ?? 0}km</span>
             </div>
           </div>
         `, { className: "mil-popup" });
         markersRef.current[a.id] = mk;
       }
 
-      // Trail
+      // Trail (faction-coloured)
+      const trailColor = a.faction === "ALPHA" ? "#ef444488" : glow;
       if (!trailsRef.current[a.id]) {
         trailsRef.current[a.id] = L.polyline([], {
-          color: glow, weight: 1.5, opacity: 0.45, dashArray: "3,5",
+          color: trailColor, weight: 1.5, opacity: 0.45, dashArray: "3,5",
         }).addTo(m);
       }
       const trail = (a.trail || []).map(p => [p.lat, p.lng]);
-      trailsRef.current[a.id].setLatLngs(trail).setStyle({ color: glow });
+      trailsRef.current[a.id].setLatLngs(trail).setStyle({ color: trailColor });
     });
   }, [assets, selectedAssetId]);
 

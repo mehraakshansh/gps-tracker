@@ -98,6 +98,7 @@ export default function App() {
   const [clock,          setClock]          = useState(new Date());
   const [activeCmd,      setActiveCmd]      = useState("ALL");
   const [activeSector,   setActiveSector]   = useState("ALL");
+  const [fogOfWar,       setFogOfWar]       = useState(true);
 
   _ue(() => {
     const t = setInterval(() => setClock(new Date()), 1000);
@@ -130,7 +131,10 @@ export default function App() {
   const timeStr = `${pad(clock.getHours())}:${pad(clock.getMinutes())}:${pad(clock.getSeconds())}`;
   const dateStr = clock.toLocaleDateString("en-IN",{ day:"2-digit", month:"short", year:"numeric" });
 
-  const critCount = (tracker.alerts||[]).filter(a => a.severity==="CRITICAL"||a.severity==="EMERGENCY").length;
+  const ms         = tracker.matchState;
+  const bravoLive  = (tracker.assets||[]).filter(a => a.faction === "BRAVO" && !a.is_destroyed).length;
+  const alphaLive  = (tracker.assets||[]).filter(a => a.faction === "ALPHA" && !a.is_destroyed).length;
+  const critCount  = (tracker.alerts||[]).filter(a => a.severity==="CRITICAL"||a.severity==="EMERGENCY").length;
   const inHostile = (tracker.assets||[]).filter(a => (a.zoneStatus||[]).some(z=>z.zoneType==="HOSTILE"&&z.state==="IN")).length;
   const haltedCount = (tracker.assets||[]).filter(a => ["HALTED","MAINTENANCE","DISABLED"].includes((a.status||"").toUpperCase())).length;
   const engagedCount = (tracker.assets||[]).filter(a => (a.status||"").toUpperCase()==="ENGAGED").length;
@@ -261,7 +265,60 @@ export default function App() {
             selectedAssetId={selectedAsset}
             onAssetClick={setSelectedAsset}
             activeSector={activeSector}
+            fogOfWar={fogOfWar}
           />
+
+          {/* ── War Scoreboard HUD (top-left over map) */}
+          {ms && (
+            <div style={{
+              position:"absolute", top:10, left:10, zIndex:500,
+              background:"rgba(1,10,3,.95)", border:"1px solid #22c55e22",
+              borderRadius:4, padding:"8px 12px", minWidth:200,
+              backdropFilter:"blur(6px)", fontFamily:"'Courier New',monospace",
+            }}>
+              {/* Status banner */}
+              <div style={{
+                textAlign:"center", fontSize:8, fontWeight:700, letterSpacing:2,
+                color: ms.status === "BRAVO_WINS" ? "#22c55e" : ms.status === "ALPHA_WINS" ? "#ef4444" : "#f97316",
+                marginBottom:6, padding:"2px 0",
+                background: ms.status !== "ACTIVE" ? (ms.status === "BRAVO_WINS" ? "#22c55e18" : "#ef444418") : "transparent",
+                borderRadius:2,
+              }}>{ms.status === "ACTIVE" ? "◈ BATTLE ACTIVE" : ms.status === "BRAVO_WINS" ? "★ BRAVO WINS" : ms.status === "ALPHA_WINS" ? "✦ ALPHA WINS" : "DRAW"}</div>
+
+              {/* Score bars */}
+              {[
+                { label:"BRAVO", score: ms.bravo_score ?? 0, color:"#22c55e", live: bravoLive, killed: ms.alpha_assets_destroyed ?? 0, zones: ms.zones_controlled_bravo ?? 0 },
+                { label:"ALPHA", score: ms.alpha_score ?? 0, color:"#ef4444", live: alphaLive, killed: ms.bravo_assets_destroyed ?? 0, zones: ms.zones_controlled_alpha ?? 0 },
+              ].map(f => (
+                <div key={f.label} style={{ marginBottom:6 }}>
+                  <div style={{ display:"flex", justifyContent:"space-between", fontSize:9, marginBottom:2 }}>
+                    <span style={{ color:f.color, fontWeight:700 }}>{f.label}</span>
+                    <span style={{ color:f.color }}>{f.score.toLocaleString()} pts</span>
+                  </div>
+                  <div style={{ background:"#0a0f0a", borderRadius:2, height:4, overflow:"hidden" }}>
+                    <div style={{
+                      height:"100%", background:f.color, opacity:0.8,
+                      width:`${Math.min(100, f.score / 50)}%`, transition:"width .5s",
+                    }}/>
+                  </div>
+                  <div style={{ display:"flex", gap:10, fontSize:7.5, color:"#2d5a2d", marginTop:2 }}>
+                    <span>LIVE <b style={{color:f.color}}>{f.live}</b></span>
+                    <span>KILLS <b style={{color:f.color}}>{f.killed}</b></span>
+                    <span>ZONES <b style={{color:f.color}}>{f.zones}</b></span>
+                  </div>
+                </div>
+              ))}
+
+              {/* Fog of war toggle */}
+              <button onClick={()=>setFogOfWar(v=>!v)} style={{
+                marginTop:2, width:"100%", background: fogOfWar ? "#22c55e18" : "transparent",
+                border:`1px solid ${fogOfWar?"#22c55e44":"#162916"}`,
+                color: fogOfWar ? "#22c55e" : "#2d4a2d",
+                borderRadius:2, padding:"3px 0", fontSize:7, fontWeight:700,
+                cursor:"pointer", fontFamily:"inherit", letterSpacing:1,
+              }}>{fogOfWar ? "👁 FOG OF WAR ON" : "👁 FOG OF WAR OFF"}</button>
+            </div>
+          )}
 
           {/* ── Service HUD (top-right over map) */}
           <div style={{ position:"absolute", top:10, right:10, zIndex:500, display:"flex", flexDirection:"column", gap:3 }}>
@@ -289,9 +346,14 @@ export default function App() {
           {selectedAsset && (() => {
             const a = tracker.assets.find(x=>x.id===selectedAsset);
             if (!a) return null;
-            const tCol = {GREEN:"#22c55e",YELLOW:"#eab308",ORANGE:"#f97316",RED:"#ef4444"}[a.threat_level]||"#22c55e";
+            const isAlpha   = a.faction === "ALPHA";
+            const tCol      = a.is_destroyed ? "#444444"
+                            : isAlpha        ? "#ef4444"
+                            : {GREEN:"#22c55e",YELLOW:"#eab308",ORANGE:"#f97316",RED:"#ef4444"}[a.threat_level]||"#22c55e";
             const statusUpper = (a.status||"ACTIVE").toUpperCase();
-            const isHalted = ["HALTED","MAINTENANCE","DISABLED"].includes(statusUpper);
+            const isHalted  = a.is_destroyed || ["HALTED","MAINTENANCE","DISABLED"].includes(statusUpper);
+            const hpPct     = a.max_hp ? Math.round((a.hp ?? a.max_hp) / a.max_hp * 100) : 100;
+            const hpColor   = a.is_destroyed ? "#444" : hpPct > 60 ? "#22c55e" : hpPct > 30 ? "#f97316" : "#ef4444";
             return (
               <div style={{
                 position:"absolute", bottom:14, left:14, zIndex:500,
@@ -300,20 +362,31 @@ export default function App() {
                 backdropFilter:"blur(8px)",
                 boxShadow:`0 0 20px ${tCol}22`,
               }}>
-                <div style={{ display:"flex", alignItems:"center", gap:8, marginBottom:8 }}>
-                  <span style={{ fontSize:26, filter:`drop-shadow(0 0 6px ${tCol})` }}>{a.icon}</span>
+                <div style={{ display:"flex", alignItems:"center", gap:8, marginBottom:6 }}>
+                  <span style={{ fontSize:26, filter:`drop-shadow(0 0 6px ${tCol})${a.is_destroyed?" grayscale(1) brightness(.4)":""}` }}>{a.icon}</span>
                   <div>
-                    <div style={{ fontSize:13, fontWeight:700, color:"#22c55e", letterSpacing:2 }}>{a.callsign}</div>
-                    <div style={{ fontSize:8, color:"#2d5a2d" }}>{a.name}</div>
+                    <div style={{ fontSize:13, fontWeight:700, color:tCol, letterSpacing:2 }}>{a.callsign}</div>
+                    <div style={{ fontSize:7, color:"#2d5a2d" }}>{a.name}</div>
+                    <div style={{ fontSize:7, color: isAlpha?"#ef4444":"#22c55e", letterSpacing:1 }}>{a.faction ?? "BRAVO"}{a.is_destroyed?" · KIA":""}</div>
                   </div>
                   <button onClick={()=>setSelectedAsset(null)} style={{ marginLeft:"auto",background:"transparent",border:"none",color:"#2d4a2d",cursor:"pointer",fontSize:14 }}>✕</button>
+                </div>
+                {/* HP Bar */}
+                <div style={{ marginBottom:6 }}>
+                  <div style={{ display:"flex", justifyContent:"space-between", fontSize:7.5, marginBottom:2 }}>
+                    <span style={{ color:"#2d6a3d" }}>HP</span>
+                    <span style={{ color:hpColor, fontWeight:700 }}>{a.is_destroyed ? "DESTROYED" : `${a.hp ?? "?"}/${a.max_hp ?? "?"}`}</span>
+                  </div>
+                  <div style={{ background:"#0a0f0a", borderRadius:2, height:5, overflow:"hidden" }}>
+                    <div style={{ height:"100%", width:`${a.is_destroyed?0:hpPct}%`, background:hpColor, transition:"width .4s" }}/>
+                  </div>
                 </div>
                 {[
                   ["SPEED",   `${a.current_speed?.toFixed(1)} km/h`],
                   ["HEADING", `${a.current_heading?.toFixed(0)}°`],
                   ["FUEL",    `${a.fuel_pct?.toFixed(0)}%`],
-                  ["AMMO",    `${a.ammo_pct?.toFixed(0)}%`],
                   ["STATUS",  statusUpper],
+                  ["ATTACK",  `${a.attack_power ?? 0}dmg / ${a.range_km ?? 0}km`],
                   ["POS",     `${a.current_lat?.toFixed(4)}°N ${a.current_lon?.toFixed(4)}°E`],
                 ].map(([k,v])=>(
                   <div key={k} style={{ display:"flex", justifyContent:"space-between", fontSize:9, marginBottom:2 }}>

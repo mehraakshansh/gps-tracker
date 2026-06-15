@@ -37,6 +37,8 @@ export function useTracker() {
   const [error,         setError]         = useState(null);
   const [connected,     setConnected]     = useState(false);
   const [tickMs,        setTickMs]        = useState(null);
+  const [matchState,    setMatchState]    = useState(null);
+  const [combatLog,     setCombatLog]     = useState([]);
   const tickRef  = useRef(null);
   const trailsRef = useRef(new Map());
 
@@ -319,6 +321,11 @@ export function useTracker() {
     (async () => {
       setLoading(true);
       await Promise.all([fetchAssets(), fetchZones(), fetchAlerts(), fetchArmory(), fetchConvoys()]);
+      // Load match state and recent combat log
+      const { data: ms } = await supabase.from("match_state").select("*").eq("id", 1).limit(1);
+      if (ms?.[0]) setMatchState(ms[0]);
+      const { data: cl } = await supabase.from("combat_log").select("*").order("created_at", { ascending: false }).limit(20);
+      if (cl) setCombatLog(cl);
       setLoading(false);
       setConnected(true);
     })();
@@ -364,9 +371,25 @@ export function useTracker() {
       })
       .subscribe();
 
+    const matchCh = supabase
+      .channel("rt-match")
+      .on("postgres_changes", { event: "UPDATE", schema: "public", table: "match_state" }, (payload) => {
+        setMatchState(payload.new);
+      })
+      .subscribe();
+
+    const combatCh = supabase
+      .channel("rt-combat")
+      .on("postgres_changes", { event: "INSERT", schema: "public", table: "combat_log" }, (payload) => {
+        setCombatLog(prev => [payload.new, ...prev].slice(0, 20));
+      })
+      .subscribe();
+
     return () => {
       supabase.removeChannel(assetsCh);
       supabase.removeChannel(alertsCh);
+      supabase.removeChannel(matchCh);
+      supabase.removeChannel(combatCh);
     };
   }, [fetchAlerts]);
 
@@ -381,6 +404,7 @@ export function useTracker() {
     addConvoy, updateConvoyStatus, deleteConvoy,
     executeCommand,
     seedAssets,
+    matchState, combatLog,
     refreshAssets: fetchAssets,
     refreshZones:  fetchZones,
   };
