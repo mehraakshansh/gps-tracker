@@ -99,6 +99,7 @@ export default function App() {
   const [activeCmd,      setActiveCmd]      = useState("ALL");
   const [activeSector,   setActiveSector]   = useState("ALL");
   const [fogOfWar,       setFogOfWar]       = useState(true);
+  const [orderMode,      setOrderMode]      = useState(null); // { assetId, callsign, waypoints:[] }
 
   _ue(() => {
     const t = setInterval(() => setClock(new Date()), 1000);
@@ -110,6 +111,21 @@ export default function App() {
     setActiveCmd(cmd);
     setActiveSector(cmd);
   }, []);
+
+  const handleExecCommand = useCallback(async (cmd) => {
+    const result = await tracker.executeCommand(cmd);
+    // Intercept ORDER command to enter order mode
+    if (result.ok && result.msg?.startsWith("__ORDER__:")) {
+      const [, assetId, callsign] = result.msg.split(":");
+      setOrderMode({ assetId, callsign, waypoints: [] });
+      setSelectedAsset(assetId);
+      return { ok: true, msg: `◈ ORDER MODE — ${callsign} selected. Click map to set waypoints. Type CONFIRM or CANCEL.` };
+    }
+    if (result.ok && result.msg === "CONFIRM" && orderMode) {
+      // handled below
+    }
+    return result;
+  }, [tracker, orderMode]);
 
   if (auth.loading) {
     return (
@@ -266,6 +282,13 @@ export default function App() {
             onAssetClick={setSelectedAsset}
             activeSector={activeSector}
             fogOfWar={fogOfWar}
+            orderMode={orderMode}
+            onMapClick={orderMode ? (latlng) => {
+              setOrderMode(prev => ({
+                ...prev,
+                waypoints: [...prev.waypoints, { lat: latlng.lat, lon: latlng.lng }],
+              }));
+            } : null}
           />
 
           {/* ── War Scoreboard HUD (top-left over map) */}
@@ -399,6 +422,21 @@ export default function App() {
                     ▶ IN {z.zoneType}: {z.zoneName}
                   </div>
                 ))}
+                {!isAlpha && !a.is_destroyed && (
+                  <button
+                    onClick={() => {
+                      setOrderMode({ assetId: a.id, callsign: a.callsign ?? a.name, waypoints: [] });
+                    }}
+                    style={{
+                      marginTop:8, width:"100%",
+                      background: orderMode?.assetId === a.id ? "#facc1522" : "transparent",
+                      border:`1px solid ${orderMode?.assetId === a.id ? "#facc15" : "#22c55e44"}`,
+                      color: orderMode?.assetId === a.id ? "#facc15" : "#22c55e",
+                      borderRadius:2, padding:"4px 0", fontSize:7.5, fontWeight:700,
+                      cursor:"pointer", fontFamily:"'Courier New',monospace", letterSpacing:1.5,
+                    }}
+                  >{orderMode?.assetId === a.id ? "🎯 ISSUING ORDERS..." : "▶ ISSUE MOVEMENT ORDER"}</button>
+                )}
               </div>
             );
           })()}
@@ -434,8 +472,62 @@ export default function App() {
             </div>
           )}
 
+          {/* ── Order Mode HUD ──────────────────────────────── */}
+          {orderMode && (
+            <div style={{
+              position:"absolute", top:"50%", left:"50%", transform:"translate(-50%,-50%)",
+              zIndex:600, pointerEvents:"none",
+              fontFamily:"'Courier New',monospace", fontSize:11, color:"#facc15",
+              textAlign:"center", letterSpacing:1,
+              textShadow:"0 0 12px #facc15",
+            }}>
+              <div style={{ fontSize:9, opacity:.8 }}>CLICK MAP TO ADD WAYPOINTS</div>
+              <div style={{ fontSize:8, color:"#4ade80", marginTop:3 }}>
+                {orderMode.waypoints.length} waypoint{orderMode.waypoints.length !== 1 ? "s" : ""} set
+              </div>
+            </div>
+          )}
+          {orderMode && (
+            <div style={{
+              position:"absolute", top:10, left:"50%", transform:"translateX(-50%)",
+              zIndex:600, background:"rgba(1,10,3,.97)", border:"1px solid #facc1566",
+              borderRadius:4, padding:"8px 16px", display:"flex", alignItems:"center", gap:12,
+              fontFamily:"'Courier New',monospace", boxShadow:"0 0 20px #facc1533",
+            }}>
+              <span style={{ fontSize:12 }}>🎯</span>
+              <div>
+                <div style={{ fontSize:9, color:"#facc15", fontWeight:700, letterSpacing:1.5 }}>
+                  ORDER MODE — {orderMode.callsign}
+                </div>
+                <div style={{ fontSize:7.5, color:"#2d5a2d" }}>
+                  Click map to add waypoints · {orderMode.waypoints.length} set
+                </div>
+              </div>
+              <button
+                onClick={async () => {
+                  if (orderMode.waypoints.length === 0) { setOrderMode(null); return; }
+                  try {
+                    await tracker.issueOrder(orderMode.assetId, orderMode.waypoints);
+                    setOrderMode(null);
+                  } catch(e) { console.error(e); }
+                }}
+                style={{
+                  background:"#22c55e22", border:"1px solid #22c55e66", color:"#22c55e",
+                  borderRadius:2, padding:"4px 12px", fontSize:8, fontWeight:700,
+                  cursor:"pointer", fontFamily:"inherit", letterSpacing:1,
+                }}>CONFIRM ✓</button>
+              <button
+                onClick={() => setOrderMode(null)}
+                style={{
+                  background:"transparent", border:"1px solid #ef444466", color:"#ef4444",
+                  borderRadius:2, padding:"4px 10px", fontSize:8, fontWeight:700,
+                  cursor:"pointer", fontFamily:"inherit", letterSpacing:1,
+                }}>CANCEL ✕</button>
+            </div>
+          )}
+
           {/* ── Command Console ─────────────────────────────── */}
-          <CommandConsole onExec={tracker.executeCommand}/>
+          <CommandConsole onExec={handleExecCommand}/>
         </div>
       </div>
 

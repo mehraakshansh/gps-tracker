@@ -212,7 +212,7 @@ const SECTORS = [
   { id:"SIACHEN",   lat:35.40, lon:76.90, zoom:9,  label:"Siachen Glacier" },
 ];
 
-export default function MapView({ assets, zones, pathResult, simResult, simObjective, convoys, selectedConvoyId, selectedAssetId, onAssetClick, activeSector, fogOfWar = true }) {
+export default function MapView({ assets, zones, pathResult, simResult, simObjective, convoys, selectedConvoyId, selectedAssetId, onAssetClick, activeSector, fogOfWar = true, orderMode = null, onMapClick = null }) {
   const divRef         = useRef(null);
   const mapRef         = useRef(null);
   const markersRef     = useRef({});
@@ -222,6 +222,7 @@ export default function MapView({ assets, zones, pathResult, simResult, simObjec
   const pathMksRef     = useRef([]);
   const simLayersRef   = useRef([]);
   const convoyLayRef   = useRef({});
+  const orderLayRef    = useRef([]);
 
   // Init map
   useEffect(() => {
@@ -244,6 +245,47 @@ export default function MapView({ assets, zones, pathResult, simResult, simObjec
     gridLayer.addTo(m);
     mapRef.current = m;
   }, []);
+
+  // Map click — captured for order mode
+  useEffect(() => {
+    const m = mapRef.current; if (!m) return;
+    const handler = (e) => { if (onMapClick) onMapClick(e.latlng); };
+    m.on("click", handler);
+    // Cursor change
+    m.getContainer().style.cursor = onMapClick ? "crosshair" : "";
+    return () => m.off("click", handler);
+  }, [onMapClick]);
+
+  // Order route overlay (yellow line + waypoint dots)
+  useEffect(() => {
+    const m = mapRef.current; if (!m) return;
+    orderLayRef.current.forEach(l => { try { m.removeLayer(l); } catch(_){} });
+    orderLayRef.current = [];
+    if (!orderMode) return;
+
+    const asset = (assets || []).find(a => a.id === orderMode.assetId);
+    const origin = asset ? [asset.current_lat, asset.current_lon] : null;
+    const wps = orderMode.waypoints.map(w => [w.lat, w.lon]);
+    const points = origin ? [origin, ...wps] : wps;
+
+    if (points.length >= 2) {
+      orderLayRef.current.push(L.polyline(points, {
+        color: "#facc15", weight: 2, dashArray: "8,5", opacity: 0.9,
+      }).addTo(m));
+    }
+
+    wps.forEach((ll, i) => {
+      const ic = L.divIcon({
+        className: "",
+        html: `<div style="width:12px;height:12px;border-radius:50%;background:#facc15;
+          border:2px solid #000;box-shadow:0 0 8px #facc15;
+          display:flex;align-items:center;justify-content:center;
+          font-size:7px;color:#000;font-weight:900;">${i+1}</div>`,
+        iconSize: [12, 12], iconAnchor: [6, 6],
+      });
+      orderLayRef.current.push(L.marker(ll, { icon: ic, interactive: false }).addTo(m));
+    });
+  }, [orderMode, assets]);
 
   // Pan to sector
   useEffect(() => {

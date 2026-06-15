@@ -77,6 +77,44 @@ Deno.serve(async (req) => {
           headers: { ...corsHeaders, "Content-Type": "application/json" },
         });
       }
+
+      // ── POST { action:"waypoints", asset_id, waypoints:[{lat,lon}] } ──
+      // Replace route_waypoints for one asset and reset its simulator_state
+      if (body.action === "waypoints") {
+        const { asset_id, waypoints } = body;
+        if (!asset_id || !Array.isArray(waypoints) || waypoints.length === 0) {
+          return new Response(JSON.stringify({ error: "asset_id and waypoints[] required" }), {
+            status: 400, headers: corsHeaders,
+          });
+        }
+        // Verify asset exists
+        const { data: assetRow, error: ae } = await supabase
+          .from("assets").select("id, faction").eq("id", asset_id).single();
+        if (ae || !assetRow) {
+          return new Response(JSON.stringify({ error: "asset not found" }), {
+            status: 404, headers: corsHeaders,
+          });
+        }
+        // Delete old waypoints
+        await supabase.from("route_waypoints").delete().eq("asset_id", asset_id);
+        // Insert new ones
+        const rows = waypoints.map((wp: { lat: number; lon: number }, i: number) => ({
+          asset_id,
+          seq: i,
+          lat: wp.lat,
+          lon: wp.lon,
+        }));
+        const { error: we } = await supabase.from("route_waypoints").insert(rows);
+        if (we) throw we;
+        // Reset sim state so asset starts from waypoint 0
+        await supabase.from("simulator_state").upsert(
+          { asset_id, step_idx: 0, updated_at: new Date().toISOString() },
+          { onConflict: "asset_id" }
+        );
+        return new Response(JSON.stringify({ ok: true, asset_id, waypoints: rows.length }), {
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
+      }
     }
 
     return new Response(JSON.stringify({ error: "not found" }), { status: 404, headers: corsHeaders });

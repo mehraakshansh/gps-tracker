@@ -298,6 +298,14 @@ export function useTracker() {
       const cv = convoysRef.current;
       return { ok:true, msg:cv.length ? cv.map(c=>`${c.name}[${c.status}]`).join("  ") : "No convoys" };
     }
+    if (verb === "ORDER" && parts[1]) {
+      // ORDER <callsign> — enters order mode (handled in App via return value)
+      const cs = parts[1].toUpperCase();
+      const a = assetsRef.current.find(x => x.callsign?.toUpperCase() === cs);
+      if (!a) return { ok:false, msg:`Asset ${cs} not found` };
+      if (a.faction === "ALPHA") return { ok:false, msg:`Cannot issue orders to enemy asset ${cs}` };
+      return { ok:true, msg:`__ORDER__:${a.id}:${a.callsign}` };
+    }
     if (verb === "SEED") {
       await apiFetch("assets", { method:"POST", body:JSON.stringify({ action:"seed" }) });
       await fetchAssets();
@@ -305,10 +313,23 @@ export function useTracker() {
     }
     if (verb === "CLEAR") return { ok:true, msg:"__CLEAR__" };
     if (verb === "HELP") {
-      return { ok:true, msg:"HALT|ENGAGE|ACTIVE <callsign>  STATUS <callsign>  LIST  ALERTS  CONVOYS  SEED  CLEAR  HELP" };
+      return { ok:true, msg:"HALT|ENGAGE|ACTIVE <callsign>  STATUS <callsign>  ORDER <callsign>  LIST  ALERTS  CONVOYS  SEED  CLEAR  HELP" };
     }
     return { ok:false, msg:`Unknown: ${verb} — type HELP` };
   }, [fetchAssets]);
+
+  // ── Issue movement order (replace waypoints for an asset) ────────────────
+  const issueOrder = useCallback(async (assetId, waypoints) => {
+    const res = await apiFetch("assets", {
+      method: "POST",
+      body: JSON.stringify({ action: "waypoints", asset_id: assetId, waypoints }),
+    });
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({ error: res.statusText }));
+      throw new Error(err.error ?? `Server error ${res.status}`);
+    }
+    return res.json();
+  }, []);
 
   // ── Force re-seed assets ──────────────────────────────────────────────────
   const seedAssets = useCallback(async () => {
@@ -404,6 +425,7 @@ export function useTracker() {
     addConvoy, updateConvoyStatus, deleteConvoy,
     executeCommand,
     seedAssets,
+    issueOrder,
     matchState, combatLog,
     refreshAssets: fetchAssets,
     refreshZones:  fetchZones,
