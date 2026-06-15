@@ -104,6 +104,12 @@ export default function App() {
     return () => clearInterval(t);
   }, []);
 
+  // Must be before any conditional returns — Rules of Hooks
+  const handleCmdChange = useCallback((cmd) => {
+    setActiveCmd(cmd);
+    setActiveSector(cmd);
+  }, []);
+
   if (auth.loading) {
     return (
       <div style={{position:"fixed",inset:0,background:"#000d02",display:"flex",alignItems:"center",justifyContent:"center",fontFamily:"'Courier New',monospace",color:"#22c55e"}}>
@@ -119,11 +125,6 @@ export default function App() {
   if (!auth.session) {
     return <AuthScreen onSignIn={auth.signIn} onSignUp={auth.signUp} onOAuth={auth.signInWithOAuth} authError={auth.authError}/>;
   }
-
-  const handleCmdChange = useCallback((cmd) => {
-    setActiveCmd(cmd);
-    setActiveSector(cmd);
-  }, []);
 
   const pad = n => String(n).padStart(2,"0");
   const timeStr = `${pad(clock.getHours())}:${pad(clock.getMinutes())}:${pad(clock.getSeconds())}`;
