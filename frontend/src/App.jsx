@@ -100,11 +100,17 @@ export default function App() {
   const [activeSector,   setActiveSector]   = useState("ALL");
   const [fogOfWar,       setFogOfWar]       = useState(true);
   const [orderMode,      setOrderMode]      = useState(null); // { assetId, callsign, waypoints:[] }
+  const [matchDismissed, setMatchDismissed] = useState(false);
 
   _ue(() => {
     const t = setInterval(() => setClock(new Date()), 1000);
     return () => clearInterval(t);
   }, []);
+
+  // Reset dismiss flag when a fresh match begins
+  _ue(() => {
+    if (tracker.matchState?.status === "ACTIVE") setMatchDismissed(false);
+  }, [tracker.matchState?.status]);
 
   // Must be before any conditional returns — Rules of Hooks
   const handleCmdChange = useCallback((cmd) => {
@@ -530,6 +536,135 @@ export default function App() {
           <CommandConsole onExec={handleExecCommand}/>
         </div>
       </div>
+
+      {/* ── End-Game Overlay ─────────────────────────────── */}
+      {ms && ms.status !== "ACTIVE" && !matchDismissed && (() => {
+        const bravoWins = ms.status === "BRAVO_WINS";
+        const accentCol = bravoWins ? "#22c55e" : "#ef4444";
+        const bgGlow    = bravoWins ? "#22c55e0d" : "#ef44440d";
+        const title     = bravoWins ? "★ BRAVO VICTORY" : "✦ ALPHA VICTORY";
+        const subtitle  = bravoWins ? "INDIA PREVAILS — MISSION ACCOMPLISHED" : "ALPHA FORCES VICTORIOUS — STAND DOWN";
+        const bScore    = ms.bravo_score ?? 0;
+        const aScore    = ms.alpha_score ?? 0;
+        const bKills    = ms.alpha_assets_destroyed ?? 0;
+        const aKills    = ms.bravo_assets_destroyed ?? 0;
+        const bZones    = ms.zones_controlled_bravo ?? 0;
+        const aZones    = ms.zones_controlled_alpha ?? 0;
+        return (
+          <div style={{
+            position:"fixed", inset:0, zIndex:900,
+            background:"rgba(0,0,0,.88)", backdropFilter:"blur(4px)",
+            display:"flex", alignItems:"center", justifyContent:"center",
+            fontFamily:"'Courier New',monospace",
+          }}>
+            <div style={{
+              background:`linear-gradient(160deg,#050e05,${bgGlow},#050e05)`,
+              border:`1px solid ${accentCol}55`,
+              borderRadius:6, padding:"36px 48px", maxWidth:520, width:"90%",
+              boxShadow:`0 0 80px ${accentCol}22, 0 0 200px ${accentCol}11`,
+              textAlign:"center",
+            }}>
+              {/* Crest */}
+              <div style={{ fontSize:44, marginBottom:10, filter:`drop-shadow(0 0 16px ${accentCol})` }}>
+                {bravoWins ? "🛡️" : "⚔️"}
+              </div>
+
+              {/* Title */}
+              <div style={{
+                fontSize:22, fontWeight:800, color:accentCol,
+                letterSpacing:4, marginBottom:4,
+                textShadow:`0 0 20px ${accentCol}`,
+              }}>{title}</div>
+              <div style={{ fontSize:8, color:"#2d5a2d", letterSpacing:3, marginBottom:28 }}>{subtitle}</div>
+
+              {/* Score comparison */}
+              <div style={{
+                display:"grid", gridTemplateColumns:"1fr auto 1fr",
+                gap:8, alignItems:"center", marginBottom:24,
+              }}>
+                {/* BRAVO column */}
+                <div style={{
+                  background: bravoWins ? "#22c55e14" : "#0a0f0a",
+                  border:`1px solid ${bravoWins?"#22c55e44":"#162916"}`,
+                  borderRadius:4, padding:"12px 8px",
+                }}>
+                  <div style={{ fontSize:8, color:"#22c55e", letterSpacing:2, marginBottom:6 }}>BRAVO</div>
+                  <div style={{ fontSize:28, fontWeight:800, color:"#22c55e", marginBottom:4 }}>{bScore.toLocaleString()}</div>
+                  <div style={{ fontSize:7, color:"#2d5a2d" }}>POINTS</div>
+                  <div style={{ marginTop:8, display:"flex", flexDirection:"column", gap:2 }}>
+                    {[["KILLS", bKills], ["ZONES", bZones], ["LIVE", bravoLive]].map(([k,v])=>(
+                      <div key={k} style={{ display:"flex", justifyContent:"space-between", fontSize:8 }}>
+                        <span style={{ color:"#2d5a2d" }}>{k}</span>
+                        <span style={{ color:"#22c55e", fontWeight:700 }}>{v}</span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+
+                {/* VS */}
+                <div style={{ fontSize:12, color:"#162916", fontWeight:700 }}>VS</div>
+
+                {/* ALPHA column */}
+                <div style={{
+                  background: !bravoWins ? "#ef444414" : "#0a0f0a",
+                  border:`1px solid ${!bravoWins?"#ef444444":"#162916"}`,
+                  borderRadius:4, padding:"12px 8px",
+                }}>
+                  <div style={{ fontSize:8, color:"#ef4444", letterSpacing:2, marginBottom:6 }}>ALPHA</div>
+                  <div style={{ fontSize:28, fontWeight:800, color:"#ef4444", marginBottom:4 }}>{aScore.toLocaleString()}</div>
+                  <div style={{ fontSize:7, color:"#5a2d2d" }}>POINTS</div>
+                  <div style={{ marginTop:8, display:"flex", flexDirection:"column", gap:2 }}>
+                    {[["KILLS", aKills], ["ZONES", aZones], ["LIVE", alphaLive]].map(([k,v])=>(
+                      <div key={k} style={{ display:"flex", justifyContent:"space-between", fontSize:8 }}>
+                        <span style={{ color:"#5a2d2d" }}>{k}</span>
+                        <span style={{ color:"#ef4444", fontWeight:700 }}>{v}</span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              </div>
+
+              {/* Winner bar */}
+              <div style={{
+                background:`${accentCol}18`, border:`1px solid ${accentCol}44`,
+                borderRadius:3, padding:"8px 0", marginBottom:20, fontSize:9,
+                color:accentCol, fontWeight:700, letterSpacing:2,
+              }}>
+                {bravoWins
+                  ? `BRAVO MARGIN: +${(bScore-aScore).toLocaleString()} pts  ·  ${bKills} ENEMY ELIMINATED`
+                  : `ALPHA MARGIN: +${(aScore-bScore).toLocaleString()} pts  ·  ${aKills} BRAVO ELIMINATED`}
+              </div>
+
+              {/* Buttons */}
+              <div style={{ display:"flex", gap:10, justifyContent:"center" }}>
+                <button
+                  onClick={async () => {
+                    setMatchDismissed(false);
+                    await tracker.seedAssets();
+                  }}
+                  style={{
+                    background:"#22c55e22", border:"1px solid #22c55e66",
+                    color:"#22c55e", borderRadius:3, padding:"8px 24px",
+                    fontSize:9, fontWeight:700, cursor:"pointer",
+                    fontFamily:"'Courier New',monospace", letterSpacing:1.5,
+                  }}>⟳ RESET MATCH</button>
+                <button
+                  onClick={() => setMatchDismissed(true)}
+                  style={{
+                    background:"transparent", border:"1px solid #162916",
+                    color:"#2d4a2d", borderRadius:3, padding:"8px 18px",
+                    fontSize:9, cursor:"pointer",
+                    fontFamily:"'Courier New',monospace", letterSpacing:1,
+                  }}>INSPECT MAP</button>
+              </div>
+
+              <div style={{ marginTop:14, fontSize:7, color:"#162916", letterSpacing:1 }}>
+                RESET MATCH will re-seed all forces and restart the simulation
+              </div>
+            </div>
+          </div>
+        );
+      })()}
 
       <style>{`
         @keyframes statusPulse { 0%,100%{opacity:1} 50%{opacity:.3} }
