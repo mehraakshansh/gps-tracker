@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback, useRef } from "react";
 import { supabase } from "../lib/supabase";
 
+
 const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL ?? "";
 const ANON_KEY     = import.meta.env.VITE_SUPABASE_ANON_KEY ?? "";
 const FN           = `${SUPABASE_URL}/functions/v1`;
@@ -109,20 +110,18 @@ export function useTracker() {
     }
   }, []);
 
-  // ── Tick — advance simulation ─────────────────────────────────────────────
+  // ── Tick — advance simulation (Realtime pushes the resulting asset/alert changes) ──
   const tick = useCallback(async () => {
     const t0 = Date.now();
     try {
       await apiFetch("tick", { method: "POST", body: JSON.stringify({}) });
-      await fetchAssets();
-      await fetchAlerts();
       setConnected(true);
       setTickMs(Date.now() - t0);
     } catch (e) {
       console.error("tick:", e);
       setConnected(false);
     }
-  }, [fetchAssets, fetchAlerts]);
+  }, []);
 
   // ── Zone CRUD ─────────────────────────────────────────────────────────────
   const addZone = useCallback(async (payload) => {
@@ -336,6 +335,40 @@ export function useTracker() {
     const iv = setInterval(fetchConvoys, 10000);
     return () => clearInterval(iv);
   }, [fetchConvoys]);
+
+  // ── Realtime: assets + alerts (replaces per-tick HTTP polling) ────────────
+  useEffect(() => {
+    const assetsCh = supabase
+      .channel("rt-assets")
+      .on("postgres_changes", { event: "UPDATE", schema: "public", table: "assets" }, (payload) => {
+        const u = payload.new;
+        if (u.current_lat != null) {
+          const trail = trailsRef.current.get(u.id) ?? [];
+          trail.push({ lat: u.current_lat, lng: u.current_lon });
+          if (trail.length > TRAIL_MAX) trail.splice(0, trail.length - TRAIL_MAX);
+          trailsRef.current.set(u.id, trail);
+        }
+        setAssets(prev => prev.map(a =>
+          a.id === u.id ? { ...u, trail: trailsRef.current.get(u.id) ?? [] } : a
+        ));
+      })
+      .subscribe();
+
+    const alertsCh = supabase
+      .channel("rt-alerts")
+      .on("postgres_changes", { event: "INSERT", schema: "public", table: "alerts" }, (payload) => {
+        setAlerts(prev => [payload.new, ...prev].slice(0, 50));
+      })
+      .on("postgres_changes", { event: "DELETE", schema: "public", table: "alerts" }, () => {
+        fetchAlerts(); // bulk clear — reload from server
+      })
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(assetsCh);
+      supabase.removeChannel(alertsCh);
+    };
+  }, [fetchAlerts]);
 
   return {
     assets, zones, alerts, armory, convoys,

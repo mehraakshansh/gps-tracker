@@ -4,6 +4,7 @@
 // Grid: 25×25 nodes (12×12 for Floyd-Warshall), Haversine edge weights
 // ================================================================
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { checkRateLimit, rateLimitedResponse } from "../_shared/rateLimit.ts";
 
 const sb   = createClient(Deno.env.get("SUPABASE_URL")!, Deno.env.get("SERVICE_ROLE_KEY")!);
 const cors = {
@@ -193,6 +194,8 @@ Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: cors });
 
   try {
+    const rl = await checkRateLimit(req, sb);
+    if (rl.limited) return rateLimitedResponse(cors);
     const body = await req.json();
     // Accept both 'algo' (frontend) and 'algorithm' (legacy) parameter names
     const algo = (body.algo ?? body.algorithm ?? "ASTAR").toUpperCase();

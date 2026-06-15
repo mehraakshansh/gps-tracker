@@ -2,6 +2,7 @@
 // OPERATION SIMULATOR v2 — Lanchester attrition + risk engine
 // ================================================================
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { checkRateLimit, rateLimitedResponse } from "../_shared/rateLimit.ts";
 const sb = createClient(Deno.env.get("SUPABASE_URL")!, Deno.env.get("SERVICE_ROLE_KEY")!);
 const cors = {
   "Access-Control-Allow-Origin": "*",
@@ -48,6 +49,8 @@ function rand() { seed = (seed * 16807) % 2147483647; return (seed - 1) / 214748
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: cors });
   try {
+    const rl = await checkRateLimit(req, sb);
+    if (rl.limited) return rateLimitedResponse(cors);
     const body = await req.json();
     const { operation_id, asset_ids, op_type, objective_lat, objective_lon } = body;
     const terrain   = body.terrain    || "PLAINS";

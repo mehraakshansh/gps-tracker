@@ -1,4 +1,5 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { checkRateLimit, rateLimitedResponse } from "../_shared/rateLimit.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -42,6 +43,8 @@ Deno.serve(async (req) => {
 
     // ── POST — create a new zone ─────────────────────────────────────────────
     if (method === "POST") {
+      const rl = await checkRateLimit(req, supabase);
+      if (rl.limited) return rateLimitedResponse(corsHeaders);
       let body: Record<string, unknown>;
       try {
         body = await req.json();
@@ -89,6 +92,8 @@ Deno.serve(async (req) => {
 
     // ── DELETE — remove a zone ───────────────────────────────────────────────
     if (method === "DELETE" && zoneId) {
+      const rl = await checkRateLimit(req, supabase);
+      if (rl.limited) return rateLimitedResponse(corsHeaders);
       const { error } = await supabase.from("zones").delete().eq("id", zoneId);
       if (error) throw error;
       return json({ deleted: true, id: zoneId });

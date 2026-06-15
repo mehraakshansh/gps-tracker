@@ -1,4 +1,5 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { checkRateLimit, rateLimitedResponse } from "../_shared/rateLimit.ts";
 
 const cors = {
   "Access-Control-Allow-Origin": "*",
@@ -65,6 +66,8 @@ Deno.serve(async (req) => {
 
     // ── POST — create convoy ──────────────────────────────────────────────────
     if (req.method === "POST") {
+      const rl = await checkRateLimit(req, supabase);
+      if (rl.limited) return rateLimitedResponse(cors);
       const user = await verifyAndLog(req, supabase, "CREATE_CONVOY");
       const body = await req.json().catch(() => ({}));
 
@@ -97,6 +100,8 @@ Deno.serve(async (req) => {
 
     // ── PUT — update convoy (status, notes) ───────────────────────────────────
     if (req.method === "PUT" && convoyId) {
+      const rl = await checkRateLimit(req, supabase);
+      if (rl.limited) return rateLimitedResponse(cors);
       await verifyAndLog(req, supabase, "UPDATE_CONVOY", convoyId);
       const body = await req.json().catch(() => ({}));
 
@@ -121,6 +126,8 @@ Deno.serve(async (req) => {
 
     // ── DELETE — remove convoy ────────────────────────────────────────────────
     if (req.method === "DELETE" && convoyId) {
+      const rl = await checkRateLimit(req, supabase);
+      if (rl.limited) return rateLimitedResponse(cors);
       await verifyAndLog(req, supabase, "DELETE_CONVOY", convoyId);
       const { error } = await supabase.from("convoys").delete().eq("id", convoyId);
       if (error) throw error;
