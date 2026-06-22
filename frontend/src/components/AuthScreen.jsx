@@ -93,8 +93,8 @@ export default function AuthScreen({ onSignIn, onSignUp, onOAuth, authError }) {
 
   const inp = {
     width: "100%", background: "rgba(0,20,8,.7)", color: T.green,
-    border: `1px solid ${T.muted}`, borderRadius: 2,
-    padding: "9px 12px", fontSize: 12, fontFamily: "'Courier New',monospace",
+    border: `1px solid ${T.muted}`, borderRadius: 6,
+    padding: "13px 14px", fontSize: 14, fontFamily: "'Courier New',monospace",
     outline: "none", letterSpacing: 1,
     boxSizing: "border-box",
   };
@@ -104,6 +104,7 @@ export default function AuthScreen({ onSignIn, onSignUp, onOAuth, authError }) {
       position: "fixed", inset: 0, background: T.bg,
       display: "flex", alignItems: "center", justifyContent: "center",
       fontFamily: "'Courier New',monospace", zIndex: 9999,
+      padding: "16px",
     }}>
       <MatrixRain />
 
@@ -117,7 +118,7 @@ export default function AuthScreen({ onSignIn, onSignUp, onOAuth, authError }) {
         <div key={i} style={{ position:"fixed", width:40, height:40, pointerEvents:"none", ...s }}/>
       ))}
 
-      <div style={{ position:"relative", zIndex:1, width:"100%", maxWidth:440, padding:"0 20px" }}>
+      <div style={{ position:"relative", zIndex:1, width:"100%", maxWidth:440 }}>
 
         {/* Header */}
         <div style={{ textAlign:"center", marginBottom:32 }}>
@@ -165,16 +166,16 @@ export default function AuthScreen({ onSignIn, onSignUp, onOAuth, authError }) {
           <form onSubmit={handleSubmit} style={{ padding:"20px 20px 16px" }}>
             {mode === "REGISTER" && (
               <label style={{ display:"block", marginBottom:12 }}>
-                <div style={{ fontSize:8, color:T.muted, letterSpacing:2, marginBottom:4 }}>OPERATOR NAME</div>
+                <div style={{ fontSize:10, color:T.muted, letterSpacing:2, marginBottom:6 }}>OPERATOR NAME</div>
                 <input value={name} onChange={e=>setName(e.target.value)} placeholder="e.g. COL SHARMA" style={inp} autoComplete="name"/>
               </label>
             )}
             <label style={{ display:"block", marginBottom:12 }}>
-              <div style={{ fontSize:8, color:T.muted, letterSpacing:2, marginBottom:4 }}>OPERATOR ID (EMAIL)</div>
+              <div style={{ fontSize:10, color:T.muted, letterSpacing:2, marginBottom:6 }}>OPERATOR ID (EMAIL)</div>
               <input type="email" value={email} onChange={e=>setEmail(e.target.value)} placeholder="user@mil.in" required style={inp} autoComplete="username"/>
             </label>
             <label style={{ display:"block", marginBottom:16 }}>
-              <div style={{ fontSize:8, color:T.muted, letterSpacing:2, marginBottom:4 }}>ACCESS CODE</div>
+              <div style={{ fontSize:10, color:T.muted, letterSpacing:2, marginBottom:6 }}>ACCESS CODE</div>
               <input type="password" value={password} onChange={e=>setPassword(e.target.value)} placeholder="••••••••••••" required style={inp} autoComplete="current-password"/>
             </label>
 
@@ -188,11 +189,12 @@ export default function AuthScreen({ onSignIn, onSignUp, onOAuth, authError }) {
 
             <button type="submit" disabled={busy} style={{
               width:"100%", background: busy ? T.dim : `linear-gradient(135deg,${T.muted},#0d3a0d)`,
-              border:`1px solid ${busy ? T.muted : T.g2}`, borderRadius:3,
-              padding:"11px", fontSize:11, fontWeight:700, cursor: busy ? "not-allowed" : "pointer",
+              border:`1px solid ${busy ? T.muted : T.g2}`, borderRadius:8,
+              padding:"15px", fontSize:13, fontWeight:700, cursor: busy ? "not-allowed" : "pointer",
               fontFamily:"inherit", color: busy ? T.muted : T.green,
               letterSpacing:3, transition:"all .2s",
               textShadow: busy ? "none" : `0 0 10px ${T.green}66`,
+              minHeight:50,
             }}>
               {busy ? "⟳ AUTHENTICATING..." : mode === "LOGIN" ? "▶ AUTHENTICATE" : "▶ REQUEST ACCESS"}
             </button>
@@ -215,8 +217,8 @@ export default function AuthScreen({ onSignIn, onSignUp, onOAuth, authError }) {
                   onClick={async () => { setOauthBusy(provider); await onOAuth(provider); setOauthBusy(null); }}
                   style={{
                     flex:1, background:"rgba(0,20,8,.6)",
-                    border:`1px solid ${oauthBusy===provider ? T.green : T.muted}`, borderRadius:3,
-                    padding:"9px", fontSize:9, fontWeight:700,
+                    border:`1px solid ${oauthBusy===provider ? T.green : T.muted}`, borderRadius:8,
+                    padding:"13px", fontSize:11, fontWeight:700,
                     cursor: oauthBusy ? "not-allowed" : "pointer", fontFamily:"inherit",
                     color:T.text, letterSpacing:2,
                     display:"flex", alignItems:"center", justifyContent:"center", gap:6,
