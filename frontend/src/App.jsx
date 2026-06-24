@@ -443,71 +443,110 @@ function MobileCommandBar({ selectedAsset, assets, onExec, clearAlerts, fogOfWar
 
 // ── Desktop Command Bar ───────────────────────────────────────────────────────
 function DesktopCommandBar({ selectedAsset, assets, onExec, clearAlerts, fogOfWar, setFogOfWar, orderMode }) {
-  const [input, setInput] = useState("");
   const asset    = selectedAsset ? assets.find(a => a.id === selectedAsset) : null;
   const canOrder = asset && asset.faction !== "ALPHA" && !asset.is_destroyed;
   const isBravo  = asset && asset.faction !== "ALPHA";
 
-  const doCmd = async cmd => { if (!cmd.trim()) return; await onExec(cmd); setInput(""); };
+  const doCmd = async cmd => { if (cmd.trim()) await onExec(cmd); };
 
   const abilities = [
-    { key:"Q", label:"HALT",    icon:"⊘",  color:C.alpha,   disabled:!isBravo, action:() => isBravo && doCmd(`HALT ${asset.callsign}`) },
-    { key:"W", label:"ENGAGE",  icon:"⚔",  color:C.fire,    disabled:!isBravo, action:() => isBravo && doCmd(`ENGAGE ${asset.callsign}`) },
-    { key:"E", label:"ACTIVE",  icon:"✦",  color:C.bravo,   disabled:!isBravo, action:() => isBravo && doCmd(`ACTIVE ${asset.callsign}`) },
-    { key:"R", label:"ORDER",   icon:"🎯", color:"#c9a84c", disabled:!canOrder, active:!!orderMode, action:() => canOrder && doCmd(`ORDER ${asset.callsign}`) },
-    { key:"F", label:fogOfWar?"WAR FOG":"FULL MAP", icon:fogOfWar?"🌫":"🗺", color:fogOfWar?C.bravo:C.muted, disabled:false, action:() => setFogOfWar(v=>!v) },
-    { key:"G", label:"SEED",    icon:"⟳",  color:C.purple,  disabled:false, action:() => doCmd("SEED") },
-    { key:"Z", label:"CLR LOG", icon:"🗑",  color:C.muted,   disabled:false, action:clearAlerts },
+    { key:"Q", label:"HALT",     icon:"⊘",  color:C.alpha,   disabled:!isBravo,  active:false,        action:() => isBravo  && doCmd(`HALT ${asset.callsign}`) },
+    { key:"W", label:"ENGAGE",   icon:"⚔",  color:C.fire,    disabled:!isBravo,  active:false,        action:() => isBravo  && doCmd(`ENGAGE ${asset.callsign}`) },
+    { key:"E", label:"ACTIVE",   icon:"✦",  color:C.bravo,   disabled:!isBravo,  active:false,        action:() => isBravo  && doCmd(`ACTIVE ${asset.callsign}`) },
+    { key:"R", label:"ORDERS",   icon:"🎯", color:"#c9a84c", disabled:!canOrder, active:!!orderMode,  action:() => canOrder && doCmd(`ORDER ${asset.callsign}`) },
+    { key:"F", label:fogOfWar?"WAR FOG":"ALL MAP", icon:fogOfWar?"🌫":"🗺", color:fogOfWar?C.bravo:C.muted, disabled:false, active:fogOfWar, action:() => setFogOfWar(v=>!v) },
+    { key:"G", label:"SEED",     icon:"⟳",  color:C.purple,  disabled:false,     active:false,        action:() => doCmd("SEED") },
+    { key:"Z", label:"CLR LOG",  icon:"🗑", color:C.muted,   disabled:false,     active:false,        action:clearAlerts },
   ];
 
   return (
     <div style={{
-      position:"absolute", bottom:0, left:0, right:0, zIndex:600, height:66,
-      background:"linear-gradient(180deg,rgba(6,4,10,0.96),rgba(8,6,14,0.99))",
+      position:"absolute", bottom:0, left:0, right:0, zIndex:600, height:72,
+      background:"linear-gradient(180deg,rgba(6,4,10,0.97),rgba(8,6,14,1))",
       borderTop:`1px solid ${C.border}`,
-      display:"flex", alignItems:"center", gap:8, padding:"0 16px",
+      display:"flex", alignItems:"center", padding:"0 20px", gap:10,
     }}>
-      <div style={{ fontSize:24, flexShrink:0, filter:`drop-shadow(0 0 10px ${C.bravo})` }}>⚜</div>
-      <div style={{ width:1, height:40, background:C.border, flexShrink:0 }}/>
-      <div style={{ display:"flex", gap:5, flexShrink:0 }}>
+      {/* Selected unit chip */}
+      <div style={{
+        flexShrink:0, minWidth:120, padding:"0 14px",
+        borderRight:`1px solid ${C.border}`, height:"100%",
+        display:"flex", flexDirection:"column", justifyContent:"center", gap:3,
+      }}>
+        {asset ? (
+          <>
+            <div style={{ fontSize:9, color: asset.faction==="ALPHA" ? C.alpha : C.bravo, fontWeight:700, letterSpacing:1.5 }}>{asset.callsign}</div>
+            <div style={{ fontSize:10, color:C.sub }}>{(asset.status||"ACTIVE").toUpperCase()}</div>
+            <div style={{ height:4, background:"rgba(0,0,0,0.4)", borderRadius:2, overflow:"hidden" }}>
+              <div style={{ height:"100%", width:`${asset.max_hp ? Math.max(0,Math.round((asset.hp??asset.max_hp)/asset.max_hp*100)) : 100}%`, background: (() => { const p = asset.max_hp ? Math.max(0,Math.round((asset.hp??asset.max_hp)/asset.max_hp*100)) : 100; return p > 60 ? C.bravo : p > 30 ? C.fire : C.alpha; })(), borderRadius:2 }}/>
+            </div>
+          </>
+        ) : (
+          <div style={{ fontSize:9, color:C.muted, letterSpacing:0.5, textAlign:"center", lineHeight:1.5 }}>
+            ◆ CLICK<br/>A UNIT
+          </div>
+        )}
+      </div>
+
+      {/* Ability buttons */}
+      <div style={{ display:"flex", gap:6, alignItems:"center" }}>
         {abilities.map((b,i) => (
-          <button key={i} onClick={b.action} disabled={b.disabled} title={b.key} style={{
-            background: b.active ? `${b.color}2a` : b.disabled ? "rgba(255,255,255,0.02)" : `${b.color}10`,
-            border:`1px solid ${b.disabled?"rgba(255,255,255,0.05)":b.active?b.color:`${b.color}44`}`,
-            color: b.disabled ? "rgba(255,255,255,0.12)" : b.color,
-            borderRadius:6, padding:"3px 8px", cursor:b.disabled?"not-allowed":"pointer",
-            fontFamily:"'Courier New',monospace", display:"flex", flexDirection:"column",
-            alignItems:"center", gap:1, minWidth:46, transition:"all .12s",
-            boxShadow:b.active?`0 0 12px ${b.color}44`:"none",
+          <button key={i} onClick={b.action} disabled={b.disabled} title={`[${b.key}] ${b.label}`} style={{
+            background: b.active   ? `${b.color}28`
+                      : b.disabled ? "rgba(255,255,255,0.02)"
+                      : `${b.color}0e`,
+            border:`1px solid ${b.disabled ? "rgba(255,255,255,0.06)" : b.active ? b.color : `${b.color}44`}`,
+            color: b.disabled ? "rgba(255,255,255,0.14)" : b.color,
+            borderRadius:10, cursor:b.disabled?"not-allowed":"pointer",
+            display:"flex", flexDirection:"column", alignItems:"center", justifyContent:"center",
+            gap:3, padding:0, width:58, height:56, flexShrink:0,
+            boxShadow: b.active ? `0 0 16px ${b.color}44, inset 0 0 12px ${b.color}18` : "none",
+            transition:"all .1s", fontFamily:"'Courier New',monospace",
+            position:"relative",
           }}>
-            <span style={{ fontSize:13, lineHeight:1 }}>{b.icon}</span>
-            <span style={{ fontSize:7, fontWeight:700, letterSpacing:0.8 }}>{b.label}</span>
-            <span style={{ fontSize:8, fontWeight:900, color:b.disabled?"rgba(255,255,255,0.08)":b.active?b.color:`${b.color}99`, letterSpacing:0.5, marginTop:1, background:`${b.color}18`, padding:"0 4px", borderRadius:2 }}>[{b.key}]</span>
+            <span style={{ fontSize:18, lineHeight:1 }}>{b.icon}</span>
+            <span style={{ fontSize:8, fontWeight:700, letterSpacing:0.8 }}>{b.label}</span>
+            {/* Key badge */}
+            <span style={{
+              position:"absolute", top:4, right:4,
+              fontSize:8, fontWeight:900, letterSpacing:0,
+              color: b.disabled ? "rgba(255,255,255,0.1)" : `${b.color}cc`,
+              background:`${b.color}15`, padding:"1px 4px", borderRadius:3,
+              lineHeight:1,
+            }}>{b.key}</span>
           </button>
         ))}
       </div>
-      <div style={{ width:1, height:40, background:C.border, flexShrink:0 }}/>
-      <div style={{
-        flex:1, display:"flex", alignItems:"center", gap:8,
-        background:"rgba(212,168,67,0.04)", border:`1px solid ${C.border}`,
-        borderRadius:6, padding:"0 12px", height:40,
-      }}>
-        <span style={{ fontSize:11, color:C.bravo, fontFamily:"'Courier New',monospace", flexShrink:0, fontWeight:700, textShadow:`0 0 8px ${C.bravo}` }}>⚜ BRCS›</span>
-        <input
-          value={input}
-          onChange={e => setInput(e.target.value)}
-          onKeyDown={e => { if (e.key==="Enter") doCmd(input); if (e.key==="Escape") setInput(""); }}
-          placeholder="command — HALT, ENGAGE, ORDER, STATUS, LIST, HELP"
-          style={{ flex:1, background:"transparent", border:"none", outline:"none", color:C.text, fontSize:11, fontFamily:"'Courier New',monospace", caretColor:C.bravo }}
-        />
-        {input && (
-          <button onClick={() => doCmd(input)} style={{
-            background:`${C.bravo}1a`, border:`1px solid ${C.bravo}55`, color:C.bravo,
-            borderRadius:4, padding:"4px 12px", fontSize:9, fontWeight:700,
-            cursor:"pointer", fontFamily:"'Courier New',monospace", letterSpacing:1,
-          }}>DISPATCH</button>
+
+      <div style={{ width:1, height:44, background:C.border, flexShrink:0 }}/>
+
+      {/* Status readout */}
+      <div style={{ flex:1, display:"flex", gap:12, alignItems:"center", padding:"0 8px" }}>
+        {orderMode ? (
+          <div style={{ display:"flex", alignItems:"center", gap:10 }}>
+            <span style={{ fontSize:18, filter:`drop-shadow(0 0 8px ${C.bravo})` }}>🎯</span>
+            <div>
+              <div style={{ fontSize:11, color:C.bravo, fontWeight:700, letterSpacing:1 }}>PLACING WAYPOINTS — {orderMode.callsign}</div>
+              <div style={{ fontSize:9, color:C.sub, marginTop:2 }}>{orderMode.waypoints?.length ?? 0} points marked · click map to add · press R or ESC to cancel</div>
+            </div>
+          </div>
+        ) : asset ? (
+          <div style={{ display:"flex", gap:14, alignItems:"center" }}>
+            <span style={{ fontSize:26 }}>{asset.icon}</span>
+            <div>
+              <div style={{ fontSize:10, color:C.text, fontWeight:700 }}>{asset.name}</div>
+              <div style={{ fontSize:9, color:C.sub, marginTop:2 }}>
+                {asset.current_speed?.toFixed(0) ?? 0} km/h · {asset.current_heading?.toFixed(0) ?? 0}° · {asset.range_km ?? 0} km range
+              </div>
+            </div>
+          </div>
+        ) : (
+          <div style={{ fontSize:10, color:C.muted, letterSpacing:1 }}>
+            SELECT A UNIT · USE Q W E R KEYS · CLICK MAP TO NAVIGATE
+          </div>
         )}
       </div>
+
+      <div style={{ fontSize:26, flexShrink:0, filter:`drop-shadow(0 0 10px ${C.bravo}88)`, opacity:0.6 }}>⚜</div>
     </div>
   );
 }
@@ -771,6 +810,35 @@ export default function App() {
   _ue(() => {
     if (tracker.matchState?.status === "ACTIVE") setMatchDismissed(false);
   }, [tracker.matchState?.status]);
+
+  // Global keyboard shortcuts — Q W E R F G Z (no text input needed)
+  _ue(() => {
+    const onKey = e => {
+      // Don't fire if user is typing in an actual input/textarea
+      if (e.target.tagName === "INPUT" || e.target.tagName === "TEXTAREA" || e.target.isContentEditable) return;
+      const key = e.key.toUpperCase();
+      const selectedA2 = selectedAsset ? (tracker.assets||[]).find(x => x.id===selectedAsset) : null;
+      const isBravo2 = selectedA2 && selectedA2.faction !== "ALPHA" && !selectedA2.is_destroyed;
+      switch (key) {
+        case "Q": if (isBravo2) { handleExecCommand(`HALT ${selectedA2.callsign}`); } break;
+        case "W": if (isBravo2) { handleExecCommand(`ENGAGE ${selectedA2.callsign}`); } break;
+        case "E": if (isBravo2) { handleExecCommand(`ACTIVE ${selectedA2.callsign}`); } break;
+        case "R":
+          if (isBravo2) {
+            if (orderMode?.assetId === selectedA2.id) setOrderMode(null);
+            else setOrderMode({ assetId:selectedA2.id, callsign:selectedA2.callsign??selectedA2.name, waypoints:[], patrol:true });
+          }
+          break;
+        case "F": setFogOfWar(v=>!v); break;
+        case "G": handleExecCommand("SEED"); break;
+        case "Z": tracker.clearAlerts?.(); break;
+        case "ESCAPE": if (orderMode) setOrderMode(null); break;
+        default: break;
+      }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [selectedAsset, tracker.assets, tracker.clearAlerts, orderMode, handleExecCommand]);
 
   // Close sidebar on map tap (mobile)
   _ue(() => {
